@@ -8,7 +8,7 @@ import dns from 'node:dns';
 process.env.UPSTREAM_ALLOWED_HOSTS = 'upstream.test';
 process.env.MAX_MANIFEST_BYTES = '1024';
 
-const { encodeSrc } = await import('../src/hlsRewriter.js');
+const { encodeSrc, encodeSrcRef } = await import('../src/hlsRewriter.js');
 
 // Route the fake allowlisted hostname to the loopback upstream server.
 const originalLookup = dns.lookup;
@@ -147,6 +147,42 @@ const upstream = createServer((req, res) => {
   if (url.pathname === '/nokey.key') {
     res.writeHead(200, { 'Content-Length': TEST_KEY.length });
     res.end(TEST_KEY);
+    return;
+  }
+  // Playback-header fixtures: /echo.m3u8 reflects the Referer/Origin it
+  // received inside the playlist body (custom X-* response headers are not
+  // passed through the relay, so the assertion reads the relayed text);
+  // /ref.m3u8 + /refseg.ts simulate a hotlink-protected CDN that serves
+  // media only when the embed context (Referer/Origin) is present.
+  if (url.pathname === '/echo.m3u8') {
+    res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl' });
+    res.end(
+      '#EXTM3U\n' +
+        `# X-Echo-Referer: ${req.headers.referer ?? ''}\n` +
+        `# X-Echo-Origin: ${req.headers.origin ?? ''}\n` +
+        `#EXTINF:6.0,\n${url.protocol}//${url.host}/refseg.ts\n#EXT-X-ENDLIST\n`
+    );
+    return;
+  }
+  // undici serializes Origin with a trailing slash; normalize before
+  // comparing against the canonical origin.
+  const receivedOrigin = (req.headers.origin ?? '').replace(/\/+$/, '');
+  const EXPECTED_REFERER = 'https://embed.example/';
+  const EXPECTED_ORIGIN = 'https://embed.example';
+  if (url.pathname === '/ref.m3u8' || url.pathname === '/refseg.ts') {
+    const authorized = req.headers.referer === EXPECTED_REFERER && receivedOrigin === EXPECTED_ORIGIN;
+    if (!authorized) {
+      res.writeHead(403, { 'Content-Type': 'text/html' });
+      res.end('<html><body>Access denied: missing embed context</body></html>');
+      return;
+    }
+    if (url.pathname === '/ref.m3u8') {
+      res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl' });
+      res.end(`#EXTM3U\n#EXTINF:6.0,\n${url.protocol}//${url.host}/refseg.ts\n#EXT-X-ENDLIST\n`);
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'video/mp2t', 'Content-Length': '100' });
+    res.end(Buffer.alloc(100, 0x5a));
     return;
   }
   res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -357,4 +393,76 @@ test('client cancellation aborts the upstream request', async () => {
   controller.abort();
   await new Promise((resolve) => setTimeout(resolve, 250));
   assert.ok(upstreamClosed, 'upstream connection must be terminated after client abort');
+});
+
+const REF_HEADERS = { Referer: 'https://embed.example/', Origin: 'https://embed.example' };
+
+test('JSON src forwards Referer/Origin to the manifest upstream', async () => {
+  const ref = encodeSrcRef(`http://upstream.test:${upstreamPort}/echo.m3u8`, REF_HEADERS);
+  const res = await fetch(relayUrl(`/master.m3u8?src=${ref}`));
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  assert.ok(text.includes(`# X-Echo-Referer: ${REF_HEADERS.Referer}`), 'upstream must receive the Referer');
+  assert.ok(text.includes('# X-Echo-Origin: https://embed.example'), 'upstream must receive the Origin');
+});
+
+test('rewritten child URIs carry the parent playback headers', async () => {
+  const ref = encodeSrcRef(`http://upstream.test:${upstreamPort}/echo.m3u8`, REF_HEADERS);
+  const res = await fetch(relayUrl(`/master.m3u8?src=${ref}`));
+  const text = await res.text();
+  const childSrc = text.match(/\/segment\?src=([A-Za-z0-9_-]+)/)?.[1];
+  assert.ok(childSrc, 'manifest must contain a rewritten /segment child');
+  const decoded = JSON.parse(Buffer.from(childSrc, 'base64url').toString('utf8'));
+  assert.equal(decoded.url, `http://upstream.test:${upstreamPort}/refseg.ts`);
+  assert.deepEqual(decoded.headers, REF_HEADERS);
+});
+
+test('hotlink-protected upstream serves media only when the src carries Referer/Origin', async () => {
+  const bare = await fetch(relayUrl(`/master.m3u8?src=${srcOf(`http://upstream.test:${upstreamPort}/ref.m3u8`)}`));
+  assert.equal(bare.status, 502, 'bare URL without embed context must fail upstream (502)');
+
+  const ref = encodeSrcRef(`http://upstream.test:${upstreamPort}/ref.m3u8`, REF_HEADERS);
+  const manifest = await fetch(relayUrl(`/master.m3u8?src=${ref}`));
+  assert.equal(manifest.status, 200);
+  const text = await manifest.text();
+  const childSrc = text.match(/\/segment\?src=([A-Za-z0-9_-]+)/)?.[1];
+  assert.ok(childSrc, 'manifest must rewrite the segment child');
+  const segment = await fetch(relayUrl(`/segment?src=${childSrc}`));
+  assert.equal(segment.status, 200, 'child segment must be served with forwarded headers');
+  assert.equal((await toBuffer(segment)).length, 100);
+});
+
+test('JSON src is honored on /segment and /key routes', async () => {
+  const seg = encodeSrcRef(`http://upstream.test:${upstreamPort}/refseg.ts`, REF_HEADERS);
+  const segment = await fetch(relayUrl(`/segment?src=${seg}`));
+  assert.equal(segment.status, 200);
+  const key = encodeSrcRef(`http://upstream.test:${upstreamPort}/keys/aes.key`, REF_HEADERS);
+  const keyRes = await fetch(relayUrl(`/key?src=${key}`));
+  assert.equal(keyRes.status, 200);
+  assert.equal((await toBuffer(keyRes)).length, 16);
+});
+
+const rawSrc = (payload) => Buffer.from(payload, 'utf8').toString('base64url');
+
+test('src payload with a disallowed playback header (Cookie) is rejected with 400', async () => {
+  const src = rawSrc(JSON.stringify({ url: `http://upstream.test:${upstreamPort}/echo.m3u8`, headers: { Cookie: 'session=1' } }));
+  const res = await fetch(relayUrl(`/master.m3u8?src=${src}`));
+  assert.equal(res.status, 400);
+});
+
+test('src payload with a non-URL playback header value is rejected with 400', async () => {
+  const src = rawSrc(JSON.stringify({ url: `http://upstream.test:${upstreamPort}/echo.m3u8`, headers: { Referer: 'not a url' } }));
+  const res = await fetch(relayUrl(`/master.m3u8?src=${src}`));
+  assert.equal(res.status, 400);
+});
+
+test('malformed JSON src payload is rejected with 400', async () => {
+  const res = await fetch(relayUrl(`/master.m3u8?src=${rawSrc('{url broken')}`));
+  assert.equal(res.status, 400);
+});
+
+test('JSON src still enforces the upstream allowlist with 403', async () => {
+  const src = rawSrc(JSON.stringify({ url: 'http://evil.example.com/x.m3u8', headers: REF_HEADERS }));
+  const res = await fetch(relayUrl(`/master.m3u8?src=${src}`));
+  assert.equal(res.status, 403);
 });

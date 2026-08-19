@@ -130,7 +130,7 @@ function pipeToResponse(res, response, stream, { forceContentType = null } = {})
   stream.pipe(res);
 }
 
-async function serveManifest(req, res, url, response, stream) {
+async function serveManifest(req, res, url, response, stream, srcHeaders) {
   console.log(
     `[PROXY ROUTE] URL: ${response.url} | Status: ${response.status} | ` +
       `Content-Type: ${response.headers.get('content-type') ?? 'none'}`
@@ -145,7 +145,7 @@ async function serveManifest(req, res, url, response, stream) {
   if (!clean.startsWith('#EXTM3U')) {
     throw new UpstreamError('E_BAD_UPSTREAM', 502, 'Upstream response is not a valid HLS playlist');
   }
-  const rewritten = rewriteManifest(clean, response.url);
+  const rewritten = rewriteManifest(clean, response.url, srcHeaders);
   const body = Buffer.from(rewritten, 'utf8');
   copySafeHeaders(res, response, [
     'content-type',
@@ -165,27 +165,28 @@ async function serveManifest(req, res, url, response, stream) {
 }
 
 router.get('/master.m3u8', async (req, res) => {
-  const url = resolveSrc(req, res);
-  if (!url) {
+  const src = resolveSrc(req, res);
+  if (!src) {
     return;
   }
   try {
-    const { response, stream } = await fetchUpstream(req, res, url.href, {
+    const { response, stream } = await fetchUpstream(req, res, src.url.href, {
       maxBytes: MAX_MANIFEST_BYTES,
+      headers: src.headers,
     });
     if (!stream) {
       passthroughUpstreamStatus(res, response);
       return;
     }
-    await serveManifest(req, res, url, response, stream);
+    await serveManifest(req, res, src.url, response, stream, src.headers);
   } catch (err) {
     sendError(res, err);
   }
 });
 
 router.get('/segment', async (req, res) => {
-  const url = resolveSrc(req, res);
-  if (!url) {
+  const src = resolveSrc(req, res);
+  if (!src) {
     return;
   }
   const range = req.headers.range;
@@ -194,21 +195,24 @@ router.get('/segment', async (req, res) => {
     res.status(416).json({ error: 'Invalid Range header' });
     return;
   }
-  const upstreamHeaders = range !== undefined ? { Range: range.trim() } : {};
+  const upstreamHeaders = { ...src.headers };
+  if (range !== undefined) {
+    upstreamHeaders.Range = range.trim();
+  }
   console.log(
-    `[relay] segment request host=${url.hostname} path=${url.pathname} ` +
+    `[relay] segment request host=${src.url.hostname} path=${src.url.pathname} ` +
       `range=${range === undefined ? 'none' : range.trim()}`
   );
   try {
-    const { response, stream } = await fetchUpstream(req, res, url.href, {
+    const { response, stream } = await fetchUpstream(req, res, src.url.href, {
       headers: upstreamHeaders,
     });
     if (!stream) {
       passthroughUpstreamStatus(res, response);
       return;
     }
-    if (isPlaylistResponse(response, url)) {
-      await serveManifest(req, res, url, response, stream);
+    if (isPlaylistResponse(response, src.url)) {
+      await serveManifest(req, res, src.url, response, stream, src.headers);
       return;
     }
     if (isHtml(response)) {
@@ -223,14 +227,15 @@ router.get('/segment', async (req, res) => {
 });
 
 router.get('/key', async (req, res) => {
-  const url = resolveSrc(req, res);
-  if (!url) {
+  const src = resolveSrc(req, res);
+  if (!src) {
     return;
   }
-  console.log(`[relay] key request host=${url.hostname} path=${url.pathname}`);
+  console.log(`[relay] key request host=${src.url.hostname} path=${src.url.pathname}`);
   try {
-    const { response, stream } = await fetchUpstream(req, res, url.href, {
+    const { response, stream } = await fetchUpstream(req, res, src.url.href, {
       maxBytes: MAX_MANIFEST_BYTES,
+      headers: src.headers,
     });
     if (!stream) {
       passthroughUpstreamStatus(res, response);

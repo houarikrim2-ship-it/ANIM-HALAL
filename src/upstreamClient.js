@@ -115,9 +115,12 @@ export async function fetchUpstream(req, res, sourceUrl, options = {}) {
   const maxRedirects = options.maxRedirects ?? UPSTREAM_MAX_REDIRECTS;
   const maxBytes = options.maxBytes ?? Infinity;
   // Static, honest request headers. The relay identifies itself; it never
-  // impersonates a browser and never injects Referer/Origin/Cookie/Authorization
-  // headers to evade upstream anti-bot controls. A CAPTCHA or anti-bot wall is
-  // treated as an unavailable source, not as a condition to bypass.
+  // fabricates Referer/Origin/Cookie/Authorization headers to evade upstream
+  // anti-bot controls. Playback headers may only arrive via [options.headers],
+  // which the relay route layer restricts to the Referer/Origin declared by
+  // the source-resolution flow (the page that embeds the media) — and a
+  // CAPTCHA or anti-bot wall is still treated as an unavailable source, not
+  // as a condition to bypass.
   const headers = {
     ...(options.headers ?? {}),
     'Accept': '*/*',
