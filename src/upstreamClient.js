@@ -114,21 +114,14 @@ export async function fetchUpstream(req, res, sourceUrl, options = {}) {
   const timeoutMs = options.timeoutMs ?? UPSTREAM_TIMEOUT_MS;
   const maxRedirects = options.maxRedirects ?? UPSTREAM_MAX_REDIRECTS;
   const maxBytes = options.maxBytes ?? Infinity;
-   // 1. استخراج اسم النطاق ديناميكياً من رابط الحلقة لتوليد الـ Referer والـ Origin تلقائياً
-  let originTarget = 'https://uqload.io';
-  try {
-    const parsedTarget = new URL(sourceUrl);
-    originTarget = `${parsedTarget.protocol}//${parsedTarget.hostname}`;
-  } catch (e) {}
-
-  // 2. صياغة الـ Headers الاحترافية ومحاكاة متصفح هاتف حقيقي لتخطي حظر الـ Anti-Bot
+  // Static, honest request headers. The relay identifies itself; it never
+  // impersonates a browser and never injects Referer/Origin/Cookie/Authorization
+  // headers to evade upstream anti-bot controls. A CAPTCHA or anti-bot wall is
+  // treated as an unavailable source, not as a condition to bypass.
   const headers = {
     ...(options.headers ?? {}),
     'Accept': '*/*',
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
-    'Referer': originTarget + '/',
-    'Origin': originTarget,
-    'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8'
+    'User-Agent': UPSTREAM_USER_AGENT,
   };
 
 

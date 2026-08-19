@@ -17,7 +17,7 @@ const SAFE_PASSTHROUGH_HEADERS = [
   'last-modified',
   'cache-control',
 ];
-const RANGE_PATTERN = /^bytes=\d*-\d*$/;
+const RANGE_PATTERN = /^bytes=\d+-\d*$|^bytes=-\d+$/;
 
 function isHtml(response) {
   const contentType = response.headers.get('content-type');
@@ -90,13 +90,24 @@ function pipeToResponse(res, response, stream, { forceContentType = null } = {})
   }
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.status(response.status);
-  stream.on('error', () => {
+  res.flushHeaders();
+  const startedAt = Date.now();
+  stream.on('end', () => {
+    console.log(
+      `[relay] binary stream completed upstreamStatus=${response.status} ` +
+        `contentType=${res.getHeader('Content-Type')} bytes=${res.getHeader('Content-Length') ?? 'chunked'} ` +
+        `elapsedMs=${Date.now() - startedAt}`
+    );
+  });
+  stream.on('error', (err) => {
+    console.error(`[relay] binary stream error: ${err?.message}`);
     if (!res.writableEnded) {
       res.destroy();
     }
   });
   res.on('close', () => {
     if (!res.writableEnded) {
+      console.warn(`[relay] binary stream aborted by client upstreamStatus=${response.status} elapsedMs=${Date.now() - startedAt}`);
       stream.destroy();
     }
   });
@@ -164,6 +175,10 @@ router.get('/segment', async (req, res) => {
     return;
   }
   const upstreamHeaders = range !== undefined ? { Range: range.trim() } : {};
+  console.log(
+    `[relay] segment request host=${url.hostname} path=${url.pathname} ` +
+      `range=${range === undefined ? 'none' : range.trim()}`
+  );
   try {
     const { response, stream } = await fetchUpstream(req, res, url.href, {
       headers: upstreamHeaders,
@@ -192,6 +207,7 @@ router.get('/key', async (req, res) => {
   if (!url) {
     return;
   }
+  console.log(`[relay] key request host=${url.hostname} path=${url.pathname}`);
   try {
     const { response, stream } = await fetchUpstream(req, res, url.href, {
       maxBytes: MAX_MANIFEST_BYTES,
