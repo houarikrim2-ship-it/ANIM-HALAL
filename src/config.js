@@ -1,5 +1,9 @@
 const DEFAULT_PORT = 3001;
-const DEFAULT_HOST = '127.0.0.1';
+// Bind all interfaces by default. Platform containers (Render, Railway,
+// Fly.io) probe the container's external interface; binding 127.0.0.1 there
+// makes the port invisible ("no open ports detected on 0.0.0.0"). Local
+// development can still pin HOST=127.0.0.1 explicitly.
+const DEFAULT_HOST = '0.0.0.0';
 const DEFAULT_TIMEOUT_MS = 20000;
 const DEFAULT_MAX_REDIRECTS = 3;
 const DEFAULT_MAX_MANIFEST_BYTES = 5 * 1024 * 1024;

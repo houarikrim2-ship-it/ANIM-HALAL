@@ -28,6 +28,10 @@ The Android emulator reaches this server through `http://10.0.2.2:3000`.
 
 The server only accepts `http`/`https` upstream URLs whose hostnames match the explicit allowlist. It does not forward device cookies or authorization headers, and it is intended only for media origins you are authorized to access.
 
+### Deploying on Render
+
+The server binds `0.0.0.0` by default so Render's port probe (which scans the container's external interface) can see it. Do **not** set `HOST=127.0.0.1` in production — Render will report `Port scan timeout reached, no open ports detected on 0.0.0.0` and never start the service. `PORT` comes from Render automatically; the default is `3001` locally. Pin `HOST=127.0.0.1` only for local-only development.
+
 ## Anime source-resolution layer
 
 The backend also exposes a normalized anime metadata + stream-source API under `/api/anime`. It aggregates MiruroAPI (metadata + streaming sources) and Jikan (metadata only) behind one contract, so the Android client never touches scraper internals.
