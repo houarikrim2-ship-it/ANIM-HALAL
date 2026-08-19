@@ -17,7 +17,7 @@
  *   same rules again at request time (defense in depth).
  */
 import { ANIME_SCRAPER_TIMEOUT_MS } from '../config.js';
-import { AnimeApiError, ERROR_CODES, isChallengeResponse, toApiError } from '../errors.js';
+import { AnimeApiError, ERROR_CODES, toApiError } from '../errors.js';
 import { normalizeUrl } from '../normalize.js';
 
 const BROWSER_USER_AGENT =
@@ -130,6 +130,13 @@ export async function fetchHtml(url, options = {}) {
   const provider = options.provider ?? 'scraper';
   const referer = options.referer ?? null;
   const origin = options.origin ?? null;
+  const accept = options.accept ?? null;
+  // Embed hosts sometimes answer JSON (e.g. YonaPlay's player API); pass the
+  // exact content types the caller is willing to parse.
+  const allowedContentTypes = options.allowedContentTypes ?? [
+    'text/html',
+    'application/xhtml',
+  ];
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -139,9 +146,13 @@ export async function fetchHtml(url, options = {}) {
 
   let response;
   try {
+    const headers = browserHeaders({ referer, origin });
+    if (accept !== null) {
+      headers.Accept = accept;
+    }
     response = await fetch(url, {
       method: 'GET',
-      headers: browserHeaders({ referer, origin }),
+      headers,
       signal: controller.signal,
       redirect: 'follow',
     });
@@ -185,7 +196,7 @@ export async function fetchHtml(url, options = {}) {
     response.headers.has('cf-challenge') || response.headers.has('cf-mitigated');
 
   const contentType = response.headers.get('content-type') ?? '';
-  if (!contentType.includes('text/html') && !contentType.includes('application/xhtml')) {
+  if (!allowedContentTypes.some((type) => contentType.includes(type))) {
     await response.body?.cancel();
     throw new AnimeApiError(ERROR_CODES.UPSTREAM_BLOCKED, 'Provider returned a non-HTML response', {
       provider,

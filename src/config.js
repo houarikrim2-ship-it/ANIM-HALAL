@@ -18,6 +18,12 @@ const DEFAULT_ALLOWED_HOSTS = Object.freeze([
   'anime4up.rest',
   'w1.anime4up.rest',
   '4d.h6m1c9q.shop',
+  // Multi-server embed hosts resolved by the extractor layer; their CDN
+  // subdomains are covered by UPSTREAM_ALLOW_SUBDOMAINS=true by default.
+  'streamwish.com',
+  'streamwish.to',
+  'vidas.su',
+  'yonaplay.net',
 ]);
 
 function parseIntEnv(name, fallback) {

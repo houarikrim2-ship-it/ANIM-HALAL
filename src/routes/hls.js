@@ -38,6 +38,7 @@ function sendError(res, err) {
     return false;
   }
   const status = err instanceof UpstreamError ? err.status : 500;
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   res.status(status).json({ error: err instanceof UpstreamError ? err.message : 'Internal server error' });
   return true;
 }
@@ -63,9 +64,20 @@ function resolveSrc(req, res) {
   }
 }
 
+/**
+ * Non-OK upstream responses are NEVER streamed to the client. The body is
+ * dropped and replaced with a JSON error so ExoPlayer/Media3 can never ingest
+ * an HTML error page or Cloudflare challenge as media.
+ * - 404 stays 404, 416 stays 416 (range negotiation is semantic and must
+ *   reach the player intact with its Content-Range header).
+ * - every other failure collapses to 502 Bad Gateway.
+ */
 function passthroughUpstreamStatus(res, response) {
   copySafeHeaders(res, response, ['content-type', 'content-length', 'cache-control']);
-  res.status(response.status).json({ error: `Upstream returned HTTP ${response.status}` });
+  const status =
+    response.status === 404 || response.status === 416 ? response.status : 502;
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.status(status).json({ error: `Upstream returned HTTP ${response.status}` });
 }
 
 async function readAll(stream, maxBytes) {
@@ -82,6 +94,10 @@ async function readAll(stream, maxBytes) {
 }
 
 function pipeToResponse(res, response, stream, { forceContentType = null } = {}) {
+  console.log(
+    `[PROXY ROUTE] URL: ${response.url} | Status: ${response.status} | ` +
+      `Content-Type: ${response.headers.get('content-type') ?? 'none'}`
+  );
   copySafeHeaders(res, response);
   if (forceContentType) {
     res.setHeader('Content-Type', forceContentType);
@@ -115,6 +131,10 @@ function pipeToResponse(res, response, stream, { forceContentType = null } = {})
 }
 
 async function serveManifest(req, res, url, response, stream) {
+  console.log(
+    `[PROXY ROUTE] URL: ${response.url} | Status: ${response.status} | ` +
+      `Content-Type: ${response.headers.get('content-type') ?? 'none'}`
+  );
   if (isHtml(response)) {
     stream.destroy();
     sendError(res, new UpstreamError('E_BAD_UPSTREAM', 502, 'Upstream returned an HTML page instead of a playlist'));

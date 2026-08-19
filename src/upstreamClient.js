@@ -189,6 +189,14 @@ export async function fetchUpstream(req, res, sourceUrl, options = {}) {
       redirects += 1;
     }
 
+    // Anti-bot walls are detected BEFORE any body is read. A CAPTCHA or
+    // Cloudflare challenge is treated as an unavailable source (502), never
+    // as a condition to bypass — the challenge body is dropped, not relayed.
+    if (response.headers.get('cf-mitigated') || response.headers.get('cf-challenge')) {
+      await response.body?.cancel();
+      throw new UpstreamError('E_BAD_UPSTREAM', 502, 'Upstream presented an anti-bot challenge');
+    }
+
     const stream =
       response.ok && response.body
         ? Readable.fromWeb(guardBodyStream(response.body, maxBytes))

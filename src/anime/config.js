@@ -94,6 +94,14 @@ export const ANIME_ANIME4UP_BASE_URL = httpUrlEnv('ANIME_ANIME4UP_BASE_URL', DEF
 
 export const ANIME_SCRAPER_TIMEOUT_MS = intEnv('ANIME_SCRAPER_TIMEOUT_MS', 12000);
 
+// ── Multi-server embed extractors (StreamWish / Vidas / YonaPlay) ──────────
+// After a scraper page yields embed links, each embed is fetched once and
+// parsed for direct media URLs. One failing host is omitted; it never breaks
+// the whole source list. Extracted media URLs are validated and proxied
+// through the HLS relay like every other source.
+export const ANIME_EMBED_FOLLOW_ENABLED = boolEnv('ANIME_EMBED_FOLLOW_ENABLED', true);
+export const ANIME_EXTRACTOR_TIMEOUT_MS = intEnv('ANIME_EXTRACTOR_TIMEOUT_MS', 10000);
+
 export const ANIME_SCRAPER_PRIORITY = (() => {
   const raw = (process.env.ANIME_SCRAPER_PRIORITY ?? '')
     .split(',')

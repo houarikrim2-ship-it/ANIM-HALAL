@@ -272,6 +272,7 @@ anime4upServer.on('request', (req, res) => {
           <li data-watch="https://w1.anime4up.rest/v/2.mp4" data-name="سيرفر FHD">server</li>
           <li data-watch="https://w1.anime4up.rest/v/2.m3u8" data-name="سيرفر HD">server</li>
           <li data-watch="https://embed.example/v2?id=99" data-name="سيرفر مباشر">server</li>
+          <li data-watch="https://embed2.example/v?id=7" data-name="سيرفر إضافي">server</li>
         </div>
         <script>
           var jwConfig = { sources: [{ file: "https://cdn.anime4up.example/2.m3u8", label: "HD" }] };
@@ -316,6 +317,140 @@ test('anime4up: nearest lower episode used when exact number missing', async () 
 test('anime4up: search miss returns null', async () => {
   const animePage = await testState.anime4up.searchAnimePage('Totally Unknown Show');
   assert.equal(animePage, null);
+});
+
+// ── Embed resolution (multi-server extractors) ─────────────────────────────
+
+/** Encodes watch-server iframe resources in the yh00.js format (one _zT/_zV pair). */
+function witanimeIframeScript(urls) {
+  const resources = urls.map((url) => {
+    // The reversed base64 must carry no '=' padding: pick a junk length that
+    // makes (url.length + junkLength) a multiple of 3.
+    let junkLength = 1;
+    while ((url.length + junkLength) % 3 !== 0) {
+      junkLength += 1;
+    }
+    const junk = 'X'.repeat(junkLength);
+    return base64(`${url}${junk}`).split('').reverse().join('');
+  });
+  const configs = urls.map((url) => {
+    const junkLength = 1 + (3 - ((url.length + 1) % 3)) % 3;
+    return `{"d":[${junkLength},0],"k":"${base64('0')}"}`;
+  });
+  const zt = `var _zT = "${base64(`["${resources.join('","')}"]`)}";`;
+  const zv = `var _zV = "${base64(`[${configs.join(',')}]`)}";`;
+  return `${zt}\n${zv}`;
+}
+
+witanimeServer.on('request', (req, res) => {
+  if (req.url === '/anime/one-piece/2') {
+    const download = witanimeEpisodeScript([
+      'https://cdn.witanime.example/full/ep-2.mp4',
+      'https://cdn.witanime.example/full/ep-2.m3u8',
+    ]);
+    const iframes = witanimeIframeScript([
+      'https://embed.example/e/xyz',
+      'https://embed.example/e/abc',
+    ]);
+    const tabs = `
+      <div id="episode-servers">
+        <a class="server-link" data-server-id="0"><span class="ser">الخادم 1</span></a>
+        <a class="server-link" data-server-id="1"><span class="ser">سيرفر FHD</span></a>
+      </div>`;
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(
+      htmlPage(`${tabs}<script>${download}\n${iframes}</script>`),
+    );
+    return;
+  }
+  res.writeHead(404, { 'Content-Type': 'text/html' });
+  res.end(htmlPage('Not found'));
+});
+
+test('witanime: unknown embed hosts are skipped without any network call', async () => {
+  const sources = await testState.witanime.resolveEpisodeSources(
+    `http://127.0.0.1:${portOf(witanimeServer)}/anime/one-piece/2`,
+  );
+  const urls = sources.map((source) => source.url);
+  assert.equal(urls.length, 2, 'only direct download URLs, embeds unresolved');
+  assert.ok(urls.includes('https://cdn.witanime.example/full/ep-2.mp4'));
+  assert.ok(urls.includes('https://cdn.witanime.example/full/ep-2.m3u8'));
+});
+
+test('witanime: watch-server embeds appended via injected resolveEmbed', async () => {
+  const resolveEmbed = async (embedUrl) => [
+    {
+      url: `https://cdn.streamwish.com/hls/${encodeURIComponent(embedUrl)}/index.m3u8`,
+      provider: 'streamwish',
+      quality: 'auto',
+      isHls: true,
+      headers: {},
+    },
+  ];
+  const sources = await testState.witanime.resolveEpisodeSources(
+    `http://127.0.0.1:${portOf(witanimeServer)}/anime/one-piece/2`,
+    { resolveEmbed, timeoutMs: 2000 },
+  );
+  assert.equal(sources.length, 4, '2 direct + 2 embed sources');
+  const embeds = sources.filter((source) => source.provider === 'streamwish');
+  assert.equal(embeds.length, 2);
+  // Tab 0 name "الخادم 1" yields no quality mapping -> auto.
+  assert.ok(embeds.some((source) => source.quality === 'auto'));
+  // Tab 1 name "سيرفر FHD" maps through inferScraperQuality -> 1080p.
+  assert.ok(embeds.some((source) => source.quality === '1080p'));
+});
+
+test('witanime: failing embed resolver never breaks the source list', async () => {
+  const resolveEmbed = async (embedUrl) => {
+    if (embedUrl.includes('e/abc')) {
+      throw new Error('embed host is down');
+    }
+    return [
+      {
+        url: `https://cdn.vidas.su/hls/${encodeURIComponent(embedUrl)}/index.m3u8`,
+        provider: 'vidas',
+        quality: 'HD',
+        isHls: true,
+        headers: {},
+      },
+    ];
+  };
+  const sources = await testState.witanime.resolveEpisodeSources(
+    `http://127.0.0.1:${portOf(witanimeServer)}/anime/one-piece/2`,
+    { resolveEmbed, timeoutMs: 2000 },
+  );
+  assert.equal(sources.length, 3, 'direct sources survive a broken embed');
+  assert.ok(sources.every((source) => source.provider === 'witanime' || source.provider === 'vidas'));
+});
+
+test('anime4up: embed rows resolved via injected resolveEmbed', async () => {
+  const resolveEmbed = async (embedUrl) => {
+    if (embedUrl.includes('embed2.')) {
+      throw new Error('embed2 host is down');
+    }
+    return [
+      {
+        url: 'https://cdn.streamwish.com/hls/anime4up/index.m3u8',
+        provider: 'streamwish',
+        quality: 'auto',
+        isHls: true,
+        headers: {},
+      },
+    ];
+  };
+  const animePage = await testState.anime4up.searchAnimePage('One Piece');
+  const episodePage = await testState.anime4up.episodePageUrl(animePage, 2);
+  const sources = await testState.anime4up.resolveEpisodeSources(episodePage, {
+    resolveEmbed,
+    timeoutMs: 2000,
+  });
+  const urls = sources.map((source) => source.url);
+  assert.ok(urls.includes('https://w1.anime4up.rest/v/2.mp4'));
+  assert.ok(urls.includes('https://w1.anime4up.rest/v/2.m3u8'));
+  assert.ok(urls.includes('https://cdn.anime4up.example/2.m3u8'));
+  const embed = sources.find((source) => source.provider === 'streamwish');
+  assert.ok(embed, 'embed row resolved into a streamwish source');
+  assert.equal(embed.quality, 'auto');
 });
 
 // ── Failure isolation ───────────────────────────────────────────────────────

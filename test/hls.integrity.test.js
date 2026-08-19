@@ -112,6 +112,43 @@ const upstream = createServer((req, res) => {
     res.flushHeaders();
     return;
   }
+  // Validation targets: non-2xx and HTML/anti-bot responses that must never
+  // reach the player as media.
+  if (url.pathname === '/error403') {
+    res.writeHead(403, { 'Content-Type': 'text/html' });
+    res.end('<html><body>Access denied by CDN</body></html>');
+    return;
+  }
+  if (url.pathname === '/error500') {
+    res.writeHead(500, { 'Content-Type': 'text/html' });
+    res.end('<html><body>Internal upstream error</body></html>');
+    return;
+  }
+  if (url.pathname === '/html-seg.ts') {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end('<html><body>Not media, just HTML</body></html>');
+    return;
+  }
+  if (url.pathname === '/html.key') {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end('<html><body>key page</body></html>');
+    return;
+  }
+  if (url.pathname === '/html.m3u8') {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end('<html><body>playlist page</body></html>');
+    return;
+  }
+  if (url.pathname === '/challenge.ts') {
+    res.writeHead(200, { 'Content-Type': 'text/html', 'cf-mitigated': 'challenge' });
+    res.end('<html><body>Checking your browser before accessing</body></html>');
+    return;
+  }
+  if (url.pathname === '/nokey.key') {
+    res.writeHead(200, { 'Content-Length': TEST_KEY.length });
+    res.end(TEST_KEY);
+    return;
+  }
   res.writeHead(404, { 'Content-Type': 'text/plain' });
   res.end('not found');
 });
@@ -243,6 +280,65 @@ test('missing or malformed src is rejected with 400', async () => {
   assert.equal(missing.status, 400);
   const malformed = await fetch(relayUrl('/key?src=!!!not-base64url!!!'));
   assert.equal(malformed.status, 400);
+});
+
+test('upstream 403 HTML page is never proxied; client receives 502 JSON', async () => {
+  const res = await fetch(relayUrl(`/segment?src=${srcOf(`http://upstream.test:${upstreamPort}/error403`)}`));
+  assert.equal(res.status, 502);
+  assert.match(res.headers.get('content-type') ?? '', /application\/json/);
+  const body = await res.text();
+  assert.ok(!body.includes('<html'), 'upstream HTML must never reach the client');
+  assert.ok(!body.includes('Access denied by CDN'));
+});
+
+test('upstream 500 collapses to 502 Bad Gateway', async () => {
+  const res = await fetch(relayUrl(`/key?src=${srcOf(`http://upstream.test:${upstreamPort}/error500`)}`));
+  assert.equal(res.status, 502);
+  const body = await res.text();
+  assert.ok(!body.includes('<html'));
+});
+
+test('upstream 404 maps to 404, not a 200 with an error body', async () => {
+  const res = await fetch(relayUrl(`/segment?src=${srcOf(`http://upstream.test:${upstreamPort}/missing.ts`)}`));
+  assert.equal(res.status, 404);
+  assert.match(res.headers.get('content-type') ?? '', /application\/json/);
+});
+
+test('200 text/html for a segment is aborted with 502 (no HTML to ExoPlayer)', async () => {
+  const res = await fetch(relayUrl(`/segment?src=${srcOf(`http://upstream.test:${upstreamPort}/html-seg.ts`)}`));
+  assert.equal(res.status, 502);
+  const body = await res.text();
+  assert.ok(!body.includes('<html'));
+});
+
+test('200 text/html for an AES key is aborted with 502', async () => {
+  const res = await fetch(relayUrl(`/key?src=${srcOf(`http://upstream.test:${upstreamPort}/html.key`)}`));
+  assert.equal(res.status, 502);
+  const body = await res.text();
+  assert.ok(!body.includes('<html'));
+});
+
+test('200 text/html for a manifest is aborted with 502', async () => {
+  const res = await fetch(relayUrl(`/master.m3u8?src=${srcOf(`http://upstream.test:${upstreamPort}/html.m3u8`)}`));
+  assert.equal(res.status, 502);
+  const body = await res.text();
+  assert.ok(!body.includes('<html'));
+});
+
+test('anti-bot challenge headers are detected and the body is never read', async () => {
+  const res = await fetch(relayUrl(`/segment?src=${srcOf(`http://upstream.test:${upstreamPort}/challenge.ts`)}`));
+  assert.equal(res.status, 502);
+  const body = await res.text();
+  assert.ok(!body.includes('<html'));
+});
+
+test('key without an upstream content-type is forced to application/octet-stream, byte-exact', async () => {
+  const res = await fetch(relayUrl(`/key?src=${srcOf(`http://upstream.test:${upstreamPort}/nokey.key`)}`));
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'application/octet-stream');
+  const body = await toBuffer(res);
+  assert.equal(body.length, 16);
+  assert.equal(Buffer.compare(body, TEST_KEY), 0);
 });
 
 test('client cancellation aborts the upstream request', async () => {

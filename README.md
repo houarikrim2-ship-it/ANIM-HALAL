@@ -51,6 +51,8 @@ The backend also exposes a normalized anime metadata + stream-source API under `
 | `ANIME_ANIME4UP_BASE_URL` | `https://anime4up.rest` | Anime4Up mirror for the scraper fallback |
 | `ANIME_SCRAPER_TIMEOUT_MS` | `12000` | Per-page scraper timeout |
 | `ANIME_SCRAPER_PRIORITY` | `witanime,anime4up` | Scraper fallback order |
+| `ANIME_EMBED_FOLLOW_ENABLED` | `true` | Master switch for the multi-server embed extractors |
+| `ANIME_EXTRACTOR_TIMEOUT_MS` | `10000` | Per-embed fetch timeout |
 
 Stream sources are never cached (media URLs are signed and expire).
 
@@ -58,7 +60,16 @@ Stream sources are never cached (media URLs are signed and expire).
 
 When MiruroAPI yields no playable source for an episode, the resolver searches the scraper sites (WitAnime, then Anime4Up) by title, resolves the same episode number, and extracts only **directly playable media URLs** from the page HTML. The Android client never contacts these hosts: every extracted URL is served through the HLS relay, which re-validates the host against `UPSTREAM_ALLOWED_HOSTS` at playback time (scraped hosts not in the allowlist are blocked by design).
 
-Scraper requests use browser-like headers (UA/Referer/Origin matching the site) with bounded timeouts and per-provider failure isolation (structured categories: `PROVIDER_TIMEOUT`, `PROVIDER_UNAVAILABLE`, `SOURCE_NOT_FOUND`, `UPSTREAM_BLOCKED`, `EXTRACTION_FAILED`, `ALL_PROVIDERS_FAILED`). Anti-bot challenges are detected and classified `UPSTREAM_BLOCKED` — they are never solved or bypassed, and the chain simply moves to the next provider. Extracted URLs are validated (http(s) only; loopback/private/link-local/reserved hosts rejected) and embed pages are never forwarded.
+Scraper requests use browser-like headers (UA/Referer/Origin matching the site) with bounded timeouts and per-provider failure isolation (structured categories: `PROVIDER_TIMEOUT`, `PROVIDER_UNAVAILABLE`, `SOURCE_NOT_FOUND`, `UPSTREAM_BLOCKED`, `EXTRACTION_FAILED`, `ALL_PROVIDERS_FAILED`). Anti-bot challenges are detected and classified `UPSTREAM_BLOCKED` — they are never solved or bypassed, and the chain simply moves to the next provider. Extracted URLs are validated (http(s) only; loopback/private/link-local/reserved hosts rejected).
+
+### Multi-server embed extractors
+
+Anime4Up and WitAnime pages sometimes list **player embeds** (StreamWish, Vidas, YonaPlay) instead of direct links. The embed extractor layer fetches each embed page once (bounded timeout, browser headers) and parses the player config (regex / JSON) into direct media URLs that are then served through the HLS relay like any other source:
+
+- Each embed host maps to a dedicated extractor (`backend/src/extractors/`); the registry matches by hostname and normalizes every extracted candidate (http(s) only, direct media suffix, no private/loopback/reserved hosts, dedupe).
+- Extracted sources are tagged with the extractor id as their `provider` (the Android client renders this as the server name) and a quality label (`FHD`/`HD`/`SD`) when the player exposes one.
+- YonaPlay responses are JSON; the framework API key (`9933bd27-…`) is appended to yonaplay embeds exactly like the Android client does.
+- **Fail-soft contract:** one broken, challenged, or timeouting embed host is omitted; it never fails the request or the other servers. Embed hosts must also be listed in `UPSTREAM_ALLOWED_HOSTS` (streamwish.com, streamwish.to, vidas.su, yonaplay.net are allowed by default) so playback succeeds through the relay.
 
 ### Endpoints
 

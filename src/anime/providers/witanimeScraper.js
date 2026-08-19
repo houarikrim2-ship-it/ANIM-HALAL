@@ -26,6 +26,7 @@ import {
   base64Decode,
   fetchHtml,
   hexToBytes,
+  inferScraperQuality,
   isSafePublicUrl,
   parseIntArray,
   parseStringArray,
@@ -51,7 +52,11 @@ const YONAPLAY_REGEX = /^https:\/\/yonaplay\.net\/embed\.php\?id=\d+$/;
 const EPISODE_ENTRY_REGEX = /\{\s*"number"\s*:\s*"(\d+)"\s*,\s*"url"\s*:\s*"([^"]+)"\s*,/g;
 
 const PROCESSED_EPISODE_REGEX = /var\s+processedEpisodeData\s*=\s*'([^']+)'/;
-const LKGX_SCRIPT_REGEX = /var _m[\s\S]*?var _x[\s\S]*?var _b/;
+// cx2.js payload: `_m` (key) + `_x` (permutation sequences) + `_b` (group
+// count) followed by one `_pN` array per group. The match must reach the
+// last `_pN` declaration or decodeDownloadUrls finds no groups.
+const LKGX_SCRIPT_REGEX =
+  /var _m[\s\S]*?var _x[\s\S]*?var _b[\s\S]*?(?:var _p\d+\s*=\s*\[[^\]]*\]\s*;?\s*)+/;
 
 /** rnd.js: decodes the episode-grid payload into { number -> page URL }. */
 export function decodeEpisodeGrid(script) {
@@ -260,14 +265,19 @@ export async function episodePageUrl(animePageUrl, number, options = {}) {
 }
 
 /**
- * Resolves directly playable media sources from a WitAnime episode page.
+ * Resolves playable media sources from a WitAnime episode page.
  *
- * Only download-group URLs that normalize to direct media are returned.
- * Watch-server iframes decode to embed pages and are deliberately excluded:
- * the backend never bypasses embed players or anti-bot protection.
+ * Two paths:
+ * 1. Download-group URLs that normalize to direct media (always returned).
+ * 2. Watch-server embeds (yonaplay/streamwish/vidas...) decoded from the
+ *    `_zT`/`_zV` payload, resolved through the host extractor chain. Each
+ *    embed is fetched with bounded timeouts; one failing host is omitted
+ *    and never breaks the list. Embeds never bypass anti-bot protection —
+ *    challenged hosts are skipped.
  */
 export async function resolveEpisodeSources(episodePageUrl, options = {}) {
   return withScraperGuard(NAME, async () => {
+    const resolveEmbed = options.resolveEmbed ?? registryResolveEmbed;
     const { text, finalUrl } = await fetchHtml(episodePageUrl, {
       provider: NAME,
       timeoutMs: options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS,
@@ -281,6 +291,7 @@ export async function resolveEpisodeSources(episodePageUrl, options = {}) {
     }
     const decoded = decodeDownloadUrls(lkgx);
     const sources = [];
+    const seenUrls = new Set();
     for (const raw of decoded) {
       const direct = toDirectStreamUrl(raw);
       if (!isSafePublicUrl(direct)) {
@@ -290,12 +301,75 @@ export async function resolveEpisodeSources(episodePageUrl, options = {}) {
         { url: direct, referer: finalUrl, origin: new URL(finalUrl).origin, label: null, quality: null },
         { providerName: NAME, language: 'sub', baseUrl: finalUrl },
       );
-      if (normalized !== null) {
+      if (normalized !== null && !seenUrls.has(normalized.url)) {
+        seenUrls.add(normalized.url);
         sources.push(normalized);
+      }
+    }
+
+    // Watch-server embeds: yh00.js payload + tab names -> host extractors.
+    for (const embed of collectWatchServers(text, finalUrl)) {
+      let resolved;
+      try {
+        resolved = await resolveEmbed(embed.url, {
+          timeoutMs: options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS,
+        });
+      } catch (err) {
+        console.warn(`[witanime] embed ${embed.url} skipped: ${err?.message ?? err}`);
+        continue;
+      }
+      for (const source of resolved) {
+        if (seenUrls.has(source.url)) {
+          continue;
+        }
+        seenUrls.add(source.url);
+        sources.push({
+          ...source,
+          quality: source.quality !== 'auto'
+            ? source.quality
+            : (inferScraperQuality(embed.name) ?? 'auto'),
+        });
       }
     }
     return sources;
   });
+}
+
+/** Default embed resolver (the extractor registry). */
+async function registryResolveEmbed(embedUrl, options) {
+  const { resolveEmbed } = await import('../../extractors/registry.js');
+  return resolveEmbed(embedUrl, options);
+}
+
+/**
+ * Decodes the `_zT`/`_zV` watch-server payload and pairs every iframe URL
+ * with its tab name (span.ser) from `#episode-servers a.server-link`.
+ */
+export function collectWatchServers(html, pageUrl) {
+  const resources = decodeIframeResources(html);
+  if (resources.length === 0) {
+    return [];
+  }
+  const names = new Map();
+  const tabRe = /<a[^>]+data-server-id="(\d+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+  while ((match = tabRe.exec(html)) !== null) {
+    const id = Number(match[1]);
+    const serRe = /<span[^>]*class="[^"]*ser[^"]*"[^>]*>([\s\S]*?)<\/span>/i.exec(match[2]);
+    const name = serRe?.[1] ? stripTags(serRe[1]) : stripTags(match[2]);
+    if (Number.isInteger(id) && name !== '') {
+      names.set(id, name);
+    }
+  }
+  const out = [];
+  for (let i = 0; i < resources.length; i += 1) {
+    const url = normalizeUrl(resources[i], pageUrl);
+    if (url === null) {
+      continue;
+    }
+    out.push({ url, name: names.get(i) ?? `الخادم ${i + 1}` });
+  }
+  return out;
 }
 
 /** Searches the site for the best anime page match and returns it. */

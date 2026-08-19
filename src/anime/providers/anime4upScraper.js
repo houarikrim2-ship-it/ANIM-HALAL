@@ -113,12 +113,17 @@ export async function episodePageUrl(animePageUrl, number, options = {}) {
 }
 
 /**
- * Resolves directly playable media sources from an Anime4Up episode page.
- * Embed targets and non-media rows are dropped; only direct URLs survive
+ * Resolves playable media sources from an Anime4Up episode page.
+ *
+ * Direct media rows become sources immediately. Embed rows (StreamWish /
+ * Vidas / YonaPlay players) are followed through the host extractor chain:
+ * each embed is fetched with bounded timeouts and one failing host is
+ * omitted — it never breaks the request. Only direct URLs survive
  * normalization (and later the relay allowlist).
  */
 export async function resolveEpisodeSources(episodePageUrl, options = {}) {
   return withScraperGuard(NAME, async () => {
+    const resolveEmbed = options.resolveEmbed ?? registryResolveEmbed;
     const { text, finalUrl } = await fetchHtml(episodePageUrl, {
       provider: NAME,
       timeoutMs: options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS,
@@ -128,6 +133,8 @@ export async function resolveEpisodeSources(episodePageUrl, options = {}) {
     const scriptCandidates = extractPlayerFileEntries(text, finalUrl);
 
     const sources = [];
+    const seenUrls = new Set();
+    const embeds = [];
     for (const candidate of [...candidates, ...scriptCandidates]) {
       if (!isSafePublicUrl(candidate.url)) {
         continue;
@@ -143,7 +150,37 @@ export async function resolveEpisodeSources(episodePageUrl, options = {}) {
         { providerName: NAME, language: 'sub', baseUrl: finalUrl },
       );
       if (normalized !== null) {
-        sources.push(normalized);
+        if (!seenUrls.has(normalized.url)) {
+          seenUrls.add(normalized.url);
+          sources.push(normalized);
+        }
+        continue;
+      }
+      // Valid http(s) URL that is not direct media -> embed page to follow.
+      embeds.push({ url: candidate.url, name: candidate.label ?? '' });
+    }
+
+    for (const embed of embeds) {
+      let resolved;
+      try {
+        resolved = await resolveEmbed(embed.url, {
+          timeoutMs: options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS,
+        });
+      } catch (err) {
+        console.warn(`[anime4up] embed ${embed.url} skipped: ${err?.message ?? err}`);
+        continue;
+      }
+      for (const source of resolved) {
+        if (seenUrls.has(source.url)) {
+          continue;
+        }
+        seenUrls.add(source.url);
+        sources.push({
+          ...source,
+          quality: source.quality !== 'auto'
+            ? source.quality
+            : (inferScraperQuality(embed.name) ?? 'auto'),
+        });
       }
     }
     if (sources.length === 0 && candidates.length === 0 && scriptCandidates.length === 0) {
@@ -154,6 +191,12 @@ export async function resolveEpisodeSources(episodePageUrl, options = {}) {
     }
     return sources;
   });
+}
+
+/** Default embed resolver (the extractor registry). */
+async function registryResolveEmbed(embedUrl, options) {
+  const { resolveEmbed } = await import('../../extractors/registry.js');
+  return resolveEmbed(embedUrl, options);
 }
 
 /** Extracts server-row candidates (data-* attributes) from the page HTML. */
