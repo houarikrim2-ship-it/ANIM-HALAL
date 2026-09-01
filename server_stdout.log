@@ -1,0 +1,19 @@
+[relay] listening on http://0.0.0.0:3001 (upstream allowlist: uqload.io, uqload.is, uqload.vc, share4max.com, anime4up.rest, w1.anime4up.rest, 4d.h6m1c9q.shop, hgcloud.to, highload.it, highload.link, hglink.to, highload.to, streamwish.com, streamwish.to, hlswish.com, playerwish.com, wishembed.com, wishplayer.com, streamy.to, stish.to, embedwish.com, vidas.su, vida.su, yonaplay.net, mp4upload.com, yourupload.com, vidcache.net, ok.ru, vkuser.net, videas.fr, vudeo.net, vudeo.to, videa.hu, dailymotion.com)
+[Resolver] POST /sources/extract anilistId=anilist:172463, title=JUJUTSU KAISEN, slug=undefined, ep=1
+[Resolver][lgstr] REQUEST anilistId=anilist:172463, title=JUJUTSU KAISEN, slug=undefined, ep=1
+{"t":"2026-08-29T02:27:36.438Z","event":"anime.provider","provider":"miruro","requestType":"info","animeId":"172463","status":200,"latencyMs":212}
+[Resolver][lgstr] TITLE_ENRICHMENT titles=[JUJUTSU KAISEN Season 3: The Culling Game Part 1, Jujutsu Kaisen: Shimetsu Kaiyuu - Zenpen, 呪術廻戦 死滅回游 前編]
+[Resolver][lgstr] TRY_TITLE "JUJUTSU KAISEN"
+[witanime] skipping dead embed https://yonaplay.net/embed.php?id=7881&apiKey=9933bd27-92ea-4ee9-807d-e612029d6318
+[Resolver][lgstr] FINAL_RESULT success=true onlyEmbedsFoundCount=1 provider=witanime
+{"t":"2026-08-29T02:27:37.148Z","event":"anime.provider","provider":"scraper","requestType":"extract","animeId":"172463","status":200,"latencyMs":709}
+[Resolver] Success: found 1 sources
+[Resolver] POST /sources/extract anilistId=anilist:21, title=One Piece, slug=undefined, ep=1
+[Resolver][6n8t1u] REQUEST anilistId=anilist:21, title=One Piece, slug=undefined, ep=1
+{"t":"2026-08-29T02:28:04.535Z","event":"anime.provider","provider":"miruro","requestType":"info","animeId":"21","status":200,"latencyMs":540}
+[Resolver][6n8t1u] TITLE_ENRICHMENT titles=[ONE PIECE, ONE PIECE, ONE PIECE]
+[Resolver][6n8t1u] TRY_TITLE "One Piece"
+[witanime] skipping dead embed https://yonaplay.net/embed.php?id=1960&apiKey=9933bd27-92ea-4ee9-807d-e612029d6318
+[Resolver][6n8t1u] FINAL_RESULT success=true directSources=1 provider=witanime
+{"t":"2026-08-29T02:28:07.542Z","event":"anime.provider","provider":"scraper","requestType":"extract","animeId":"21","status":200,"latencyMs":3006}
+[Resolver] Success: found 2 sources

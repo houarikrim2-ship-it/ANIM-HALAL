@@ -4,31 +4,54 @@
  * Scraper providers hand embed URLs (StreamWish / Vidas / YonaPlay player
  * pages) to [resolveEmbed], which:
  *   1. finds the extractor that owns the host,
- *   2. fetches the embed page with bounded timeout + browser headers
- *      (challenge pages are classified and dropped — never bypassed),
- *   3. extracts direct media candidates by regex/JSON parsing,
- *   4. validates every URL (http(s), direct media suffix, no private /
- *      loopback / reserved hosts),
- *   5. normalizes to the stable StreamSource model tagged with the host id
- *      (the Android UI renders this as the server name) and its quality
- *      label.
+ *   2. resolves it through the shared extractor pipeline (see resolver.js),
+ *   3. returns every normalized source for the embed.
+ *
+ * Each extractor module additionally exposes a `resolve(embedUrl, context)`
+ * contract method (spec §2) returning the single best {name, quality, url,
+ * type, headers} entry — implemented by the same shared pipeline, so the
+ * registry and the per-extractor entry points can never drift apart.
  *
  * Failure contract: one broken embed host NEVER breaks the request. Every
  * error is caught and logged; the server is simply omitted from the list.
  */
-import { ANIME_EXTRACTOR_TIMEOUT_MS } from '../anime/config.js';
-import { normalizeStreamSource } from '../anime/normalize.js';
-import { fetchHtml, isSafePublicUrl } from '../anime/providers/scraperSupport.js';
+import { resolveWithExtractor } from './resolver.js';
 import * as streamwish from './streamwish.js';
 import * as vidas from './vidas.js';
 import * as yonaplay from './yonaplay.js';
+import * as hgcloud from './hgcloud.js';
+import * as okru from './okru.js';
+import * as mp4upload from './mp4upload.js';
+import * as uqload from './uqload.js';
+import * as voe from './voe.js';
+import * as dood from './dood.js';
+import * as vidbom from './vidbom.js';
+import * as vidyard from './vidyard.js';
+import * as gdrive from './gdrive.js';
+import * as shared from './shared.js';
+import * as generic from './generic.js';
 
 /** Ordered extractor list; first match wins. */
-export const EXTRACTORS = [streamwish, vidas, yonaplay];
+export const EXTRACTORS = [
+    streamwish,
+    vidas,
+    yonaplay,
+    hgcloud,
+    okru,
+    mp4upload,
+    uqload,
+    voe,
+    dood,
+    vidbom,
+    vidyard,
+    gdrive,
+    shared,
+    generic
+];
 
 /** Returns the extractor module owning [url], or null. */
-export function extractorFor(url) {
-  return EXTRACTORS.find((extractor) => extractor.matches(url)) ?? null;
+export function extractorFor(url, extractors = EXTRACTORS) {
+  return extractors.find((extractor) => extractor.matches(url)) ?? null;
 }
 
 /**
@@ -38,54 +61,16 @@ export function extractorFor(url) {
  * @param {object} options
  *   timeoutMs   per-request timeout (default ANIME_EXTRACTOR_TIMEOUT_MS)
  *   extractors  injectable extractor list (tests)
- * @returns {Promise<Array>} normalized sources; empty when the host is
- *   unknown, unreachable, challenged, malformed or disabled.
+ * @returns {Promise<{sources: Array, error: string|null, status: number|null, extractionStatus: string}>} normalized sources.
  */
 export async function resolveEmbed(embedUrl, options = {}) {
-  // Read lazily (not at module load) so tests and runtime toggles work.
-  if ((process.env.ANIME_EMBED_FOLLOW_ENABLED ?? 'true') === 'false') {
-    return [];
-  }
   const extractors = options.extractors ?? EXTRACTORS;
-  const extractor = extractors.find((candidate) => candidate.matches(embedUrl));
+  const extractor = extractorFor(embedUrl, extractors);
   if (!extractor) {
-    return [];
+    return { sources: [], error: 'No matching extractor found', extractionStatus: 'FAILED' };
   }
-  const timeoutMs = options.timeoutMs ?? ANIME_EXTRACTOR_TIMEOUT_MS;
-  try {
-    const accept = extractor.accept ?? null;
-    const allowedContentTypes = extractor.allowedContentTypes ?? ['text/html', 'application/xhtml'];
-    const { text, finalUrl } = await fetchHtml(embedUrl, {
-      provider: `embed:${extractor.id}`,
-      timeoutMs,
-      accept,
-      allowedContentTypes,
-    });
-    const candidates = extractor.extractStreams(text, { pageUrl: finalUrl });
-    const sources = [];
-    for (const candidate of candidates) {
-      if (!isSafePublicUrl(candidate.url)) {
-        continue;
-      }
-      const normalized = normalizeStreamSource(
-        {
-          url: candidate.url,
-          referer: finalUrl,
-          origin: new URL(finalUrl).origin,
-          label: candidate.label ?? null,
-          quality: candidate.quality ?? null,
-        },
-        { providerName: extractor.id, language: 'sub', baseUrl: finalUrl },
-      );
-      if (normalized !== null) {
-        sources.push(normalized);
-      }
-    }
-    return sources;
-  } catch (err) {
-    console.warn(
-      `[extractor] ${extractor.id} skipped for ${embedUrl}: ${err?.message ?? 'unknown error'}`
-    );
-    return [];
-  }
+  return resolveWithExtractor(extractor, embedUrl, {
+    timeoutMs: options.timeoutMs,
+    sourceKind: options.sourceKind
+  });
 }

@@ -98,6 +98,35 @@ test('GET /api/anime/episode/sources returns no-store sources', async () => {
   assert.equal(body.data.sources[0].isHls, true);
 });
 
+test('sources carry name, quality, url and a relay-wrapped proxyUrl', async () => {
+  const res = await fetch(api('/episode/sources?episodeId=watch/kiwi/21/sub/kip-1'));
+  const body = await res.json();
+  const source = body.data.sources[0];
+  assert.equal(typeof source.name, 'string');
+  assert.equal(typeof source.quality, 'string');
+  assert.equal(typeof source.url, 'string');
+  const proxyUrl = new URL(source.proxyUrl);
+  assert.equal(proxyUrl.pathname, '/master.m3u8', 'HLS sources must be wrapped through /master.m3u8');
+  const src = proxyUrl.searchParams.get('src');
+  assert.ok(src, 'proxyUrl must embed the src payload');
+  assert.equal(
+    Buffer.from(src, 'base64url').toString('utf8'),
+    'https://cdn.example.com/kiwi-1.m3u8?tok=1',
+    'the src payload decodes to the authorized upstream URL'
+  );
+});
+
+test('proxyUrl honors X-Forwarded-Proto/Host (Render proxy)', async () => {
+  const res = await fetch(api('/episode/sources?episodeId=watch/kiwi/21/sub/kip-1'), {
+    headers: { 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': 'anim-halal.onrender.com' },
+  });
+  const body = await res.json();
+  assert.ok(
+    body.data.sources[0].proxyUrl.startsWith('https://anim-halal.onrender.com/master.m3u8?src='),
+    `unexpected proxyUrl: ${body.data.sources[0].proxyUrl}`
+  );
+});
+
 test('GET /api/anime/episode/sources with a malformed id is 400', async () => {
   const res = await fetch(api('/episode/sources?episodeId=garbage'));
   assert.equal(res.status, 400);

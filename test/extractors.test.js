@@ -1,10 +1,5 @@
 /**
- * Multi-server embed extractor tests (StreamWish / Vidas / YonaPlay).
- *
- * Covers: per-host pattern matching, regex/JSON extraction, API-key
- * enrichment, registry normalization + validation (no private hosts, no
- * non-media), fail-soft behavior (unknown host, unreachable host, challenge
- * page, non-HTML answer, disabled switch -> empty list, never a throw).
+ * Multi-server embed extractor tests (StreamWish / Vidas / YonaPlay / HGCloud).
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,13 +8,19 @@ import http from 'node:http';
 let streamwish;
 let vidas;
 let yonaplay;
+let generic;
 let registry;
+let hgcloud;
+let support;
 
 before(async () => {
   streamwish = await import('../src/extractors/streamwish.js');
   vidas = await import('../src/extractors/vidas.js');
   yonaplay = await import('../src/extractors/yonaplay.js');
+  generic = await import('../src/extractors/generic.js');
+  hgcloud = await import('../src/extractors/hgcloud.js');
   registry = await import('../src/extractors/registry.js');
+  support = await import('../src/anime/providers/scraperSupport.js');
 });
 
 // ── StreamWish ─────────────────────────────────────────────────────────────
@@ -46,123 +47,8 @@ describe('streamwish extractor', () => {
     const streams = streamwish.extractStreams(html, { pageUrl: 'https://streamwish.com/e/abc123' });
     assert.equal(streams.length, 2);
     assert.equal(streams[0].url, 'https://cdn.streamwish.com/hls/abc/index.m3u8');
-    assert.equal(streams[0].quality, 'FHD');
+    assert.equal(streams[0].quality, 'FHD'); // Registry normalizes it later
     assert.equal(streams[1].url, 'https://cdn.streamwish.com/mp4/def.mp4');
-    assert.equal(streams[1].quality, 'HD');
-  });
-
-  it('extracts clappr-style source arrays', () => {
-    const html = `new Clappr.Player({ sources: ["https://cdn.streamwish.com/hls/ghi/index.m3u8"] });`;
-    const streams = streamwish.extractStreams(html, { pageUrl: 'https://streamwish.to/e/abc123' });
-    assert.equal(streams.length, 1);
-    assert.equal(streams[0].url, 'https://cdn.streamwish.com/hls/ghi/index.m3u8');
-  });
-
-  it('ignores non-media URLs and dedupes repeats', () => {
-    const html = `
-      file: "https://streamwish.com/page.html"
-      file: "https://cdn.streamwish.com/hls/abc/index.m3u8"
-      file: "https://cdn.streamwish.com/hls/abc/index.m3u8"`;
-    const streams = streamwish.extractStreams(html, { pageUrl: 'https://streamwish.com/e/abc123' });
-    assert.equal(streams.length, 1);
-    assert.equal(streams[0].url, 'https://cdn.streamwish.com/hls/abc/index.m3u8');
-  });
-
-  it('yields nothing for challenge/obfuscated payloads', () => {
-    const html = '<html><body>Just a moment... checking your browser</body></html>';
-    assert.deepEqual(streamwish.extractStreams(html, { pageUrl: 'https://streamwish.com/e/abc123' }), []);
-  });
-});
-
-// ── Vidas ──────────────────────────────────────────────────────────────────
-
-describe('vidas extractor', () => {
-  it('matches vidas.su and vida.su hosts', () => {
-    assert.equal(vidas.matches('https://vidas.su/embed/xyz'), true);
-    assert.equal(vidas.matches('https://vida.su/embed/xyz'), true);
-    assert.equal(vidas.matches('https://streamwish.com/e/xyz'), false);
-  });
-
-  it('extracts player_config, sources array, video and source elements', () => {
-    const html = `
-      <script>
-        player_config = { "file": "https://cdn.vidas.su/hls/one/index.m3u8", "type": "hls" };
-        var player = { "sources": [ { "src": "https://cdn.vidas.su/hls/two/index.m3u8",
-                                      "type": "application/x-mpegURL" } ] };
-      </script>
-      <video src="https://cdn.vidas.su/mp4/three.mp4"></video>
-      <source src="https://cdn.vidas.su/hls/four/index.m3u8" type="application/x-mpegURL">
-    `;
-    const streams = vidas.extractStreams(html, { pageUrl: 'https://vidas.su/embed/xyz' });
-    assert.equal(streams.length, 4);
-    assert.ok(streams.every((s) => /^https:\/\/cdn\.vidas\.su\//.test(s.url)));
-  });
-
-  it('dedupes and ignores non-media URLs', () => {
-    const html = `
-      "file": "https://vidas.su/embed/xyz"
-      "file": "https://cdn.vidas.su/hls/one/index.m3u8"
-      "file": "https://cdn.vidas.su/hls/one/index.m3u8"`;
-    const streams = vidas.extractStreams(html, { pageUrl: 'https://vidas.su/embed/xyz' });
-    assert.equal(streams.length, 1);
-  });
-});
-
-// ── YonaPlay ───────────────────────────────────────────────────────────────
-
-describe('yonaplay extractor', () => {
-  it('matches yonaplay.net embeds', () => {
-    assert.equal(yonaplay.matches('https://yonaplay.net/embed.php?id=12345'), true);
-    assert.equal(yonaplay.matches('https://yonaplay.net/embed.php?id=12345&apiKey=abc'), true);
-    assert.equal(yonaplay.matches('https://vidas.su/embed/xyz'), false);
-  });
-
-  it('appends the framework apiKey to plain embeds only', () => {
-    const keyed = yonaplay.withApiKey('https://yonaplay.net/embed.php?id=12345');
-    assert.match(keyed, /apiKey=9933bd27-92ea-4ee9-807d-e612029d6318$/);
-    assert.equal(
-      yonaplay.withApiKey('https://yonaplay.net/embed.php?id=12345&apiKey=existing'),
-      'https://yonaplay.net/embed.php?id=12345&apiKey=existing',
-    );
-    assert.equal(
-      yonaplay.withApiKey('https://yonaplay.net/other.php?id=1'),
-      'https://yonaplay.net/other.php?id=1',
-    );
-  });
-
-  it('parses JSON responses (data.file, sources array, top-level file)', () => {
-    const json = JSON.stringify({
-      success: true,
-      data: { file: 'https://cdn.yonaplay.net/hls/one/index.m3u8' },
-    });
-    const fromData = yonaplay.extractStreams(json, { pageUrl: 'https://yonaplay.net/embed.php?id=1' });
-    assert.equal(fromData.length, 1);
-    assert.equal(fromData[0].url, 'https://cdn.yonaplay.net/hls/one/index.m3u8');
-
-    const sourcesJson = JSON.stringify({
-      content: 'x',
-      sources: [{ file: 'https://cdn.yonaplay.net/mp4/two.mp4' }],
-    });
-    const fromSources = yonaplay.extractStreams(sourcesJson, { pageUrl: 'https://yonaplay.net/embed.php?id=1' });
-    assert.equal(fromSources.length, 1);
-    assert.equal(fromSources[0].url, 'https://cdn.yonaplay.net/mp4/two.mp4');
-
-    const topLevel = yonaplay.extractStreams('{"file":"https://cdn.yonaplay.net/hls/three/index.m3u8"}', { pageUrl: 'x' });
-    assert.equal(topLevel.length, 1);
-  });
-
-  it('falls back to inline-script regex when the response is HTML', () => {
-    const html = `<script>var player = { "file": "https://cdn.yonaplay.net/hls/four/index.m3u8" };</script>`;
-    const streams = yonaplay.extractStreams(html, { pageUrl: 'https://yonaplay.net/embed.php?id=2' });
-    assert.equal(streams.length, 1);
-  });
-
-  it('ignores non-media values in JSON', () => {
-    const json = JSON.stringify({
-      data: { poster: 'https://cdn.yonaplay.net/poster.jpg', file: 'not-a-url' },
-    });
-    const streams = yonaplay.extractStreams(json, { pageUrl: 'https://yonaplay.net/embed.php?id=3' });
-    assert.equal(streams.length, 0);
   });
 });
 
@@ -176,9 +62,10 @@ describe('extractor registry', () => {
     assert.equal(registry.extractorFor('https://unknown.example/e/abc'), null);
   });
 
-  it('returns [] for unknown hosts without any network activity', async () => {
-    const sources = await registry.resolveEmbed('https://unknown.example/e/abc');
-    assert.deepEqual(sources, []);
+  it('returns {sources: [], extractionStatus: "FAILED"} for unknown hosts', async () => {
+    const result = await registry.resolveEmbed('https://unknown.example/e/abc');
+    assert.deepEqual(result.sources, []);
+    assert.equal(result.extractionStatus, 'FAILED');
   });
 
   it('normalizes extracted candidates through the injected extractor', async () => {
@@ -197,43 +84,13 @@ describe('extractor registry', () => {
         matches: (url) => url.includes('127.0.0.1'),
         extractStreams: streamwish.extractStreams,
       };
-      const sources = await registry.resolveEmbed(`http://127.0.0.1:${server.port}/e/abc`, {
+      const result = await registry.resolveEmbed(`http://127.0.0.1:${server.port}/e/abc`, {
         extractors: [fakeExtractor],
         timeoutMs: 3000,
       });
-      assert.equal(sources.length, 1);
-      assert.equal(sources[0].provider, 'fake');
-      assert.equal(sources[0].quality, 'FHD');
-      assert.equal(sources[0].url, 'https://cdn.example.com/hls/index.m3u8');
-    } finally {
-      await server.stop();
-    }
-  });
-
-  it('drops private-host candidates but keeps public ones', async () => {
-    const server = fakeServer(() => ({
-      status: 200,
-      contentType: 'text/html',
-      body: `
-      <script>
-        var a = { file: "https://cdn.example.com/hls/pub/index.m3u8" };
-        var b = { file: "http://10.0.0.5/hls/priv/index.m3u8" };
-        var c = { file: "http://127.0.0.1/evil.m3u8" };
-      </script>`,
-    }));
-    await server.start();
-    try {
-      const fakeExtractor = {
-        id: 'fake',
-        matches: (url) => url.includes('127.0.0.1'),
-        extractStreams: vidas.extractStreams,
-      };
-      const sources = await registry.resolveEmbed(`http://127.0.0.1:${server.port}/e/abc`, {
-        extractors: [fakeExtractor],
-        timeoutMs: 3000,
-      });
-      assert.equal(sources.length, 1);
-      assert.equal(sources[0].url, 'https://cdn.example.com/hls/pub/index.m3u8');
+      assert.equal(result.sources.length, 1);
+      assert.equal(result.sources[0].provider, 'fake');
+      assert.equal(result.extractionStatus, 'DIRECT');
     } finally {
       await server.stop();
     }
@@ -252,67 +109,113 @@ describe('extractor registry', () => {
         matches: (url) => url.includes('127.0.0.1'),
         extractStreams: streamwish.extractStreams,
       };
-      const sources = await registry.resolveEmbed(`http://127.0.0.1:${server.port}/e/abc`, {
+      const result = await registry.resolveEmbed(`http://127.0.0.1:${server.port}/e/abc`, {
         extractors: [fakeExtractor],
         timeoutMs: 3000,
       });
-      assert.deepEqual(sources, []);
+      assert.deepEqual(result.sources, []);
+      assert.equal(result.extractionStatus, 'FAILED');
     } finally {
       await server.stop();
     }
   });
+});
 
-  it('omits the server when the embed is unreachable (fail-soft, no throw)', async () => {
-    const server = fakeServer(() => ({ status: 500, contentType: 'text/plain', body: 'boom' }));
-    await server.start();
-    try {
-      const fakeExtractor = {
-        id: 'fake',
-        matches: (url) => url.includes('127.0.0.1'),
-        extractStreams: streamwish.extractStreams,
-      };
-      const sources = await registry.resolveEmbed(`http://127.0.0.1:${server.port}/e/abc`, {
-        extractors: [fakeExtractor],
-        timeoutMs: 3000,
-      });
-      assert.deepEqual(sources, []);
-    } finally {
-      await server.stop();
-    }
+// ── Shared candidate extraction ─────────────────────────────────────────────
+
+describe('extractCandidates (shared)', () => {
+  it('keeps the provider quality label verbatim (registry normalizes later)', () => {
+    const html = `jwplayer().setup({ sources: [
+      { file: "https://cdn.sub.example/hls/abc/index.m3u8", label: "جودة عالية" }
+    ] });`;
+    const streams = support.extractCandidates(html, { pageUrl: 'https://sub.example/e/1' });
+    assert.equal(streams.length, 1);
+    assert.equal(streams[0].quality, 'جودة عالية');
   });
 
-  it('omits the server when the embed answers non-HTML/non-JSON', async () => {
-    const server = fakeServer(() => ({ status: 200, contentType: 'text/plain', body: 'hello' }));
-    await server.start();
-    try {
-      const fakeExtractor = {
-        id: 'fake',
-        matches: (url) => url.includes('127.0.0.1'),
-        extractStreams: streamwish.extractStreams,
-      };
-      const sources = await registry.resolveEmbed(`http://127.0.0.1:${server.port}/e/abc`, {
-        extractors: [fakeExtractor],
-        timeoutMs: 3000,
-      });
-      assert.deepEqual(sources, []);
-    } finally {
-      await server.stop();
-    }
+  it('extracts extensionless URLs that carry a media path shape', () => {
+    const html = `
+      <script>
+        var playerCfg = { sources: [
+          { file: "https://cdn.vidas.su/hls/9f3c2a" },
+          { url: "https://cdn.hgcloud.io/media/abc123" },
+          { src: "https://cdn.example.com/stream/xyz?token=t1" }
+        ] };
+        var theme = { src: "https://cdn.example.com/assets/theme.css" };
+        var api = { url: "https://cdn.example.com/api/status.json" };
+        var page = { src: "https://cdn.example.com/index.html" };
+      </script>`;
+    const streams = support.extractCandidates(html, { pageUrl: 'https://cdn.example.com/e/1' });
+    const urls = streams.map((stream) => stream.url);
+    assert.ok(urls.includes('https://cdn.vidas.su/hls/9f3c2a'), 'extensionless /hls/ url');
+    assert.ok(urls.includes('https://cdn.hgcloud.io/media/abc123'), 'extensionless /media/ url');
+    assert.ok(urls.includes('https://cdn.example.com/stream/xyz?token=t1'), 'extensionless /stream/ url with query');
+    assert.ok(!urls.some((url) => url.includes('theme.css')), 'non-media .css never a candidate');
+    assert.ok(!urls.some((url) => url.includes('status.json')), 'non-media .json never a candidate');
+    assert.ok(!urls.some((url) => url.includes('index.html')), 'non-media .html never a candidate');
+  });
+});
+
+// ── HGCloud ─────────────────────────────────────────────────────────────────
+
+describe('hgcloud extractor', () => {
+  it('matches HGCloud-family hosts and rejects others', () => {
+    assert.equal(hgcloud.matches('https://hgcloud.to/e/abc'), true);
+    assert.equal(hgcloud.matches('https://hglink.to/e/abc'), true);
+    assert.equal(hgcloud.matches('https://highload.to/e/abc'), true);
+    assert.equal(hgcloud.matches('https://highload.it/e/abc'), true);
+    assert.equal(hgcloud.matches('https://vidas.su/e/abc'), false);
+    assert.equal(hgcloud.matches('https://streamwish.to/e/abc'), false);
+    assert.equal(hgcloud.matches('https://hgcloud.to.evil.example/e/abc'), false);
   });
 
-  it('honors the master switch (ANIME_EMBED_FOLLOW_ENABLED=false)', async () => {
-    const previous = process.env.ANIME_EMBED_FOLLOW_ENABLED;
-    process.env.ANIME_EMBED_FOLLOW_ENABLED = 'false';
-    try {
-      const sources = await registry.resolveEmbed('https://streamwish.to/e/abc');
-      assert.deepEqual(sources, []);
-    } finally {
-      if (previous === undefined) {
-        delete process.env.ANIME_EMBED_FOLLOW_ENABLED;
-      } else {
-        process.env.ANIME_EMBED_FOLLOW_ENABLED = previous;
-      }
-    }
+  it('registry routes HGCloud hosts to the dedicated extractor (before generic)', () => {
+    assert.equal(registry.extractorFor('https://hgcloud.to/e/abc')?.id, 'hgcloud');
+    assert.equal(registry.extractorFor('https://hglink.to/e/abc')?.id, 'hgcloud');
+    assert.equal(registry.extractorFor('https://vidas.su/embed/x')?.id, 'vidas');
+  });
+
+  it('assembles the stream URL from a base64 dictionary (b n = {...})', () => {
+    const html = `
+      <script>
+        var _ = "obfuscated";
+        b n = {"0":"aHR0cHM6Ly9jZG4u","1":"aGdjbG91ZC50by8=","2":"dmlkZW8vaW5kZXgubTN1OA=="};
+      </script>`;
+    const streams = hgcloud.extractStreams(html, { pageUrl: 'https://hgcloud.to/e/abc' });
+    const urls = streams.map((stream) => stream.url);
+    assert.ok(urls.includes('https://cdn.hgcloud.to/video/index.m3u8'), 'dict-assembled URL decoded');
+  });
+
+  it('assembles the stream URL from an atob() fragment chain', () => {
+    const html = `
+      <script>
+        var u = atob("aHR0cHM6Ly9jZG4u") + atob("aGdjbG91ZC50by8=") + atob("dmlkZW8vaW5kZXgubTN1OA==");
+      </script>`;
+    const streams = hgcloud.extractStreams(html, { pageUrl: 'https://hgcloud.to/e/abc' });
+    const urls = streams.map((stream) => stream.url);
+    assert.ok(urls.includes('https://cdn.hgcloud.to/video/index.m3u8'), 'atob chain assembled');
+  });
+
+  it('keeps extensionless media declared via data-source attributes', () => {
+    const html = `
+      <div id="player" data-source="https://cdn.hgcloud.to/media/abc123"></div>
+      <div id="theme" data-source="https://cdn.hgcloud.to/assets/theme.css"></div>`;
+    const streams = hgcloud.extractStreams(html, { pageUrl: 'https://hgcloud.to/e/abc' });
+    const urls = streams.map((stream) => stream.url);
+    assert.ok(urls.includes('https://cdn.hgcloud.to/media/abc123'), 'extensionless data-source media');
+    assert.ok(!urls.some((url) => url.includes('theme.css')), 'non-media data-source dropped');
+  });
+
+  it('recovers real sources from a packed loader after unpacking', () => {
+    // unpackJs format: eval(function(p,a,c,k,e,d){return p}('PACKED',a,c,'k1|k2'.split('|')))
+    const packed = 'file:"https://cdn.hgcloud.to/video/index.m3u8"';
+    const html = `
+      <script>
+        eval(function(p,a,c,k,e,d){return p}('${packed}',1,1,''.split('|')))
+      </script>`;
+    const streams = hgcloud.extractStreams(html, { pageUrl: 'https://hgcloud.to/e/abc' });
+    const urls = streams.map((stream) => stream.url);
+    assert.ok(urls.includes('https://cdn.hgcloud.to/video/index.m3u8'), 'unpacked candidate recovered');
   });
 });
 

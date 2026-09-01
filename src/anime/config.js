@@ -70,6 +70,8 @@ export const ANIME_EPISODES_CACHE_TTL_MS = intEnv('ANIME_EPISODES_CACHE_TTL_MS',
 // Stream sources are never cached: media URLs are often signed and expire.
 export const ANIME_SOURCES_CACHE_TTL_MS = 0;
 
+export const ANIME_CATALOG_REFRESH_INTERVAL_MS = intEnv('ANIME_CATALOG_REFRESH_INTERVAL_MS', 180_000); // 3 mins
+
 export const ANIME_PROVIDER_PRIORITY = (() => {
   const raw = (process.env.ANIME_PROVIDER_PRIORITY ?? '')
     .split(',')
@@ -84,10 +86,10 @@ export const ANIME_PROVIDER_PRIORITY = (() => {
 // Android client never contacts these hosts; every extracted URL is proxied
 // through the HLS relay, which enforces the upstream allowlist.
 
-const DEFAULT_WITANIME_BASE_URL = 'https://witanime.com';
-const DEFAULT_ANIME4UP_BASE_URL = 'https://anime4up.rest';
+const DEFAULT_WITANIME_BASE_URL = 'https://witanime.you';
+const DEFAULT_ANIME4UP_BASE_URL = 'https://w1.anime4up.rest';
 
-export const ANIME_SCRAPER_ENABLED = boolEnv('ANIME_SCRAPER_ENABLED', true);
+export const ANIME_SCRAPER_ENABLED = true;
 
 export const ANIME_WITANIME_BASE_URL = httpUrlEnv('ANIME_WITANIME_BASE_URL', DEFAULT_WITANIME_BASE_URL);
 export const ANIME_ANIME4UP_BASE_URL = httpUrlEnv('ANIME_ANIME4UP_BASE_URL', DEFAULT_ANIME4UP_BASE_URL);
@@ -99,7 +101,7 @@ export const ANIME_SCRAPER_TIMEOUT_MS = intEnv('ANIME_SCRAPER_TIMEOUT_MS', 12000
 // parsed for direct media URLs. One failing host is omitted; it never breaks
 // the whole source list. Extracted media URLs are validated and proxied
 // through the HLS relay like every other source.
-export const ANIME_EMBED_FOLLOW_ENABLED = boolEnv('ANIME_EMBED_FOLLOW_ENABLED', true);
+export const ANIME_EMBED_FOLLOW_ENABLED = true;
 export const ANIME_EXTRACTOR_TIMEOUT_MS = intEnv('ANIME_EXTRACTOR_TIMEOUT_MS', 10000);
 
 export const ANIME_SCRAPER_PRIORITY = (() => {

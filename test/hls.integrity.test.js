@@ -7,6 +7,11 @@ import dns from 'node:dns';
 // hoists static imports above statements, so app imports are dynamic.
 process.env.UPSTREAM_ALLOWED_HOSTS = 'upstream.test';
 process.env.MAX_MANIFEST_BYTES = '1024';
+// The fake upstream lives on loopback; this is a server-side TEST-ONLY
+// override (never reachable from clients) for the post-DNS SSRF validator.
+process.env.UPSTREAM_ALLOW_PRIVATE_RESOLUTION = 'true';
+// Retry behavior has its own dedicated suite; keep this suite single-shot.
+process.env.UPSTREAM_RETRY_MAX_ATTEMPTS = '0';
 
 const { encodeSrc, encodeSrcRef } = await import('../src/hlsRewriter.js');
 

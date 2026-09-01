@@ -14,12 +14,38 @@ import {
   animeEpisodes,
   animeInfo,
   episodeSources,
+  extractSources,
+  getCatalogState,
   providerStatus,
   searchAnime,
 } from '../anime/resolver.js';
 import { AnimeApiError, ERROR_CODES } from '../anime/errors.js';
+import { buildRelayPath } from '../hlsRewriter.js';
 
 const router = express.Router();
+
+function addProxyUrls(req, data) {
+  if (!data?.sources || !Array.isArray(data.sources)) {
+    return data;
+  }
+  const protocol = req.get('X-Forwarded-Proto') || req.protocol;
+  const host = req.get('X-Forwarded-Host') || req.get('host');
+  const baseUrl = `${protocol}://${host}`;
+
+  const sources = data.sources.map((s) => {
+    if (s.isHls && s.url) {
+      try {
+        const relayPath = buildRelayPath('master', new URL(s.url), s.headers);
+        return { ...s, proxyUrl: `${baseUrl}${relayPath}` };
+      } catch (err) {
+        console.error('[relay] failed to build proxyUrl:', err.message);
+        return s;
+      }
+    }
+    return s;
+  });
+  return { ...data, sources };
+}
 
 function sendOk(res, data, { cacheControl = null } = {}) {
   if (cacheControl !== null) {
@@ -75,6 +101,22 @@ router.get('/episodes/:id', async (req, res, next) => {
   }
 });
 
+router.get('/catalog/state', (_req, res) => {
+    sendOk(res, getCatalogState(), { cacheControl: 'no-store' });
+});
+
+router.get('/catalog/version', (_req, res) => {
+    const state = getCatalogState();
+    res.json({
+        success: true,
+        data: {
+            revision: state.revision,
+            lastUpdated: state.lastUpdated,
+            hasChanges: true // Simplified
+        }
+    });
+});
+
 /**
  * Sources for one episode. [episodeId] is the opaque Miruro watch id, e.g.
  * "watch/kiwi/21/sub/kimetsu-no-yaiba-episode-1". Passed as a query
@@ -85,8 +127,25 @@ router.get('/episode/sources', async (req, res, next) => {
   try {
     const episodeId = requireQuery(req, 'episodeId');
     const result = await episodeSources(episodeId);
-    sendOk(res, result, { cacheControl: 'no-store' });
+    sendOk(res, addProxyUrls(req, result), { cacheControl: 'no-store' });
   } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * On-demand live extraction.
+ * Request body: { anilistId, title, slug, episodeNumber, category? }
+ */
+router.post('/sources/extract', async (req, res, next) => {
+  try {
+    const { anilistId, title, slug, episodeNumber, category } = req.body;
+    console.log(`[Resolver] POST /sources/extract anilistId=${anilistId}, title=${title}, slug=${slug}, ep=${episodeNumber}`);
+    const result = await extractSources({ anilistId, title, slug, episodeNumber, category });
+    console.log(`[Resolver] Success: found ${result.sources.length} sources`);
+    sendOk(res, addProxyUrls(req, result), { cacheControl: 'no-store' });
+  } catch (err) {
+    console.error(`[Resolver] Extraction failed: ${err.message}`);
     next(err);
   }
 });

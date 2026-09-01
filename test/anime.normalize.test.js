@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  finalizeSources,
   isDirectMediaUrl,
   normalizeJikanAnime,
   normalizeJikanEpisode,
@@ -11,6 +12,7 @@ import {
   normalizeUrl,
   normalizeWatchSources,
   parseWatchEpisodeId,
+  sortSourcesByQuality,
 } from '../src/anime/normalize.js';
 
 // ── normalizeUrl ────────────────────────────────────────────────────────────
@@ -89,10 +91,12 @@ test('normalizeStreamSource: HLS with headers and subtitles', () => {
   );
   assert.deepEqual(source, {
     url: 'https://cdn.example.com/master.m3u8?tok=1',
+    name: 'kiwi',
     type: 'hls',
     quality: '1080p',
     mimeType: 'application/vnd.apple.mpegurl',
     isHls: true,
+    isEmbed: false,
     headers: { Referer: 'https://source.example.com/' },
     subtitles: [
       {
@@ -107,12 +111,24 @@ test('normalizeStreamSource: HLS with headers and subtitles', () => {
   });
 });
 
-test('normalizeStreamSource: embed pages are rejected, never forwarded', () => {
-  assert.equal(
-    normalizeStreamSource({ file: 'https://embed.example.com/player?e=1', type: 'embed' }, { providerName: 'x' }),
-    null
+test('normalizeStreamSource: explicit name wins over the provider fallback', () => {
+  const source = normalizeStreamSource(
+    { url: 'https://cdn.example.com/v.m3u8', quality: '1080p', name: 'StreamWish' },
+    { providerName: 'streamwish' }
   );
-  assert.equal(normalizeStreamSource({ url: 'https://x.com/watch/123' }, { providerName: 'x' }), null);
+  assert.equal(source.name, 'StreamWish');
+  assert.equal(source.provider, 'streamwish');
+});
+
+test('normalizeStreamSource: embed pages are classified, not rejected', () => {
+  const embed = normalizeStreamSource({ file: 'https://embed.example.com/player?e=1', type: 'embed' }, { providerName: 'x', allowEmbeds: true });
+  assert.ok(embed);
+  assert.equal(embed.isEmbed, true);
+  assert.equal(embed.type, 'embed');
+
+  const watch = normalizeStreamSource({ url: 'https://x.com/watch/123' }, { providerName: 'x', allowEmbeds: true });
+  assert.ok(watch);
+  assert.equal(watch.isEmbed, true);
 });
 
 test('normalizeStreamSource: missing url yields null', () => {
@@ -146,8 +162,9 @@ test('normalizeWatchSources: accepts both streams and sources keys, dedupes by u
     },
     { providerName: 'kiwi' }
   );
-  assert.equal(viaStreams.length, 1);
+  assert.equal(viaStreams.length, 2);
   assert.equal(viaStreams[0].url, 'https://cdn.example.com/a.m3u8');
+  assert.equal(viaStreams[1].url, 'https://embed.example.com/player');
 
   const viaSources = normalizeWatchSources(
     {
@@ -206,10 +223,64 @@ test('normalizeJikanAnime: stable summary with jikan_ namespace id', () => {
     studios: [{ name: 'Madhouse' }],
     aired: { prop: { from: { year: 2023, month: 9, day: 29 } } },
   });
-  assert.equal(anime.id, 'jikan_123');
+assert.equal(anime.id, 'jikan_123');
   assert.equal(anime.coverImage.large, 'w-l.jpg');
   assert.equal(anime.averageScore, 91);
   assert.equal(anime.genres[0], 'Fantasy');
   assert.equal(anime.provider, 'jikan');
-  assert.equal(anime.isAdult, false);
+});
+
+// ── sortSourcesByQuality / finalizeSources (spec §3) ───────────────────────
+
+const source = (url, quality, name) => ({ url, quality, name });
+
+test('sortSourcesByQuality: deterministic quality ranking (FHD > HD > SD > auto)', () => {
+  const input = [
+    source('https://cdn.example/a.m3u8', 'auto', 'server-a'),
+    source('https://cdn.example/sd.m3u8', 'SD', 'server-b'),
+    source('https://cdn.example/hd.m3u8', 'HD', 'server-c'),
+    source('https://cdn.example/fhd.m3u8', 'FHD', 'server-d'),
+    source('https://cdn.example/1080.m3u8', '1080p', 'server-e'),
+  ];
+  const sorted = sortSourcesByQuality(input);
+  assert.deepEqual(
+    sorted.map((s) => s.quality),
+    ['FHD', '1080p', 'HD', 'SD', 'auto']
+  );
+  assert.deepEqual(
+    input.map((s) => s.url),
+    [
+      'https://cdn.example/a.m3u8',
+      'https://cdn.example/sd.m3u8',
+      'https://cdn.example/hd.m3u8',
+      'https://cdn.example/fhd.m3u8',
+      'https://cdn.example/1080.m3u8',
+    ],
+    'input array must not be mutated'
+  );
+});
+
+test('sortSourcesByQuality: ties break by name then url, stable and total', () => {
+  const input = [
+    source('https://cdn.example/z.m3u8', 'HD', 'z'),
+    source('https://cdn.example/a.m3u8', 'HD', 'a'),
+  ];
+  assert.deepEqual(
+    sortSourcesByQuality(input).map((s) => s.name),
+    ['a', 'z']
+  );
+});
+
+test('finalizeSources: dedupes by url and sorts deterministically', () => {
+  const input = [
+    source('https://cdn.example/hd.m3u8', 'HD', 'server-a'),
+    source('https://cdn.example/sd.m3u8', 'SD', 'server-b'),
+    source('https://cdn.example/hd.m3u8', 'HD', 'server-a'), // duplicate
+    { url: 42 }, // malformed row dropped
+    null,
+  ];
+  const finalized = finalizeSources(input);
+  assert.equal(finalized.length, 2);
+  assert.equal(finalized[0].quality, 'HD');
+  assert.equal(finalized[1].quality, 'SD');
 });

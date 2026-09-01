@@ -1,21 +1,8 @@
 /**
  * YonaPlay embed extractor (yonaplay.net/embed.php?id={id}).
- *
- * YonaPlay's player API answers with JSON. The WitAnime theme appends the
- * framework API key (`?id=...&apiKey=...`) to yonaplay embeds; without the
- * key the API refuses to resolve the stream. The Android client applies the
- * same key, so the backend mirrors that behavior when the key is missing.
- *
- * Response shapes handled:
- *   { "success": true, "data": { "file": "https://.../index.m3u8", ... } }
- *   { "content": "...", "sources": [ { "file": "https://...m3u8" } ] }
- *   { "file": "https://...mp4" }
- *   HTML fallback: `"file": "https://...m3u8"` inside inline scripts.
- *
- * Extraction is pure regex / JSON parsing; candidates are validated
- * downstream and the relay re-checks hosts at playback time.
  */
-import { normalizeUrl } from '../anime/normalize.js';
+import { extractCandidates } from '../anime/providers/scraperSupport.js';
+import { resolveAll } from './resolver.js';
 
 export const id = 'yonaplay';
 
@@ -30,103 +17,39 @@ const HOST_PATTERNS = [
   /(?:^|[/.])yonaplay\.net(?::\d+)?(?:\/|$)/i,
 ];
 
-const EMBED_PATTERN = /^https:\/\/yonaplay\.net\/embed\.php\?id=\d+$/i;
-
-const JSON_FILE_REGEX =
-  /["']?(?:file|src|url)["']?\s*:\s*["'](https?:\/\/[^"']+\.(?:m3u8|mp4|webm|m4v)(?:[?#][^"']*)?)["']/gi;
-
 /** True when [url] points at a YonaPlay embed page. */
 export function matches(url) {
   return HOST_PATTERNS.some((pattern) => pattern.test(url));
 }
 
+export function resolve(embedUrl, context = {}) {
+  return resolveAll(
+    { id, matches, extractStreams, enrichUrl: withApiKey, accept, allowedContentTypes },
+    embedUrl,
+    context
+  );
+}
+
 /** Appends the framework API key to yonaplay embed URLs that lack one. */
 export function withApiKey(url) {
-  if (!EMBED_PATTERN.test(url)) {
+  if (typeof url !== 'string' || !url.includes('.php')) {
     return url;
   }
-  return url.includes('apiKey=') ? url : `${url}&apiKey=${YONAPLAY_API_KEY}`;
-}
-
-/**
- * Extracts direct media candidates from the player API response (JSON or
- * inline-script HTML).
- *
- * @param {string} html    response text (JSON or HTML)
- * @param {object} context { pageUrl }
- * @returns {Array<{url: string, label: string|null, quality: string|null}>}
- */
-export function extractStreams(html, context = {}) {
-  const baseUrl = context.pageUrl ?? null;
-  const out = [];
-  const seen = new Set();
-  const push = (rawUrl, label = null) => {
-    // Only direct-media candidates may leave the extractor; the registry
-    // re-validates host + suffix on every candidate.
-    if (!/\.(?:m3u8|mp4|webm|m4v)(?:[?#]|$)/i.test(rawUrl)) {
-      return;
-    }
-    const url = normalizeUrl(rawUrl, baseUrl);
-    if (url === null || seen.has(url)) {
-      return;
-    }
-    seen.add(url);
-    out.push({ url, label, quality: inferLabel(label) });
-  };
-
-  // JSON path: walk common envelopes without trusting their shape.
   try {
-    const parsed = JSON.parse(html);
-    for (const value of collectFileValues(parsed)) {
-      if (typeof value === 'string') {
-        push(value);
-      }
+    const parsed = new URL(url);
+    if (!parsed.searchParams.has('apiKey')) {
+      parsed.searchParams.set('apiKey', YONAPLAY_API_KEY);
+      return parsed.toString();
     }
   } catch {
-    // Not JSON (or JSON with inline comments) -> regex fallback below.
+    // invalid URL
   }
-
-  // Regex fallback (also covers HTML pages with inline configs).
-  let match;
-  JSON_FILE_REGEX.lastIndex = 0;
-  while ((match = JSON_FILE_REGEX.exec(html)) !== null) {
-    push(match[1]);
-  }
-
-  return out;
+  return url;
 }
 
-function collectFileValues(node) {
-  const found = [];
-  if (Array.isArray(node)) {
-    for (const entry of node) {
-      found.push(...collectFileValues(entry));
-    }
-    return found;
-  }
-  if (node === null || typeof node !== 'object') {
-    return found;
-  }
-  for (const [key, value] of Object.entries(node)) {
-    if ((key === 'file' || key === 'src' || key === 'url') && typeof value === 'string') {
-      found.push(value);
-    } else {
-      found.push(...collectFileValues(value));
-    }
-  }
-  return found;
-}
+export const enrichUrl = withApiKey;
 
-function inferLabel(value) {
-  if (typeof value !== 'string') {
-    return null;
-  }
-  const lower = value.toLowerCase();
-  if (lower.includes('fhd') || lower.includes('1080')) {
-    return 'FHD';
-  }
-  if (lower.includes('hd') || lower.includes('720')) {
-    return 'HD';
-  }
-  return null;
+export function extractStreams(html, context = {}) {
+  const baseUrl = context.pageUrl ?? null;
+  return extractCandidates(html, { pageUrl: baseUrl });
 }

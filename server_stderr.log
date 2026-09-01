@@ -1,0 +1,2 @@
+[extractor:yonaplay] fetch failed for https://yonaplay.net/embed.php?id=7881&apiKey=9933bd27-92ea-4ee9-807d-e612029d6318: Provider HTTP 404
+[extractor:yonaplay] fetch failed for https://yonaplay.net/embed.php?id=1960&apiKey=9933bd27-92ea-4ee9-807d-e612029d6318: Provider HTTP 404

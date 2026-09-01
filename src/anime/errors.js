@@ -41,13 +41,21 @@ export class AnimeApiError extends Error {
     this.status = options.status ?? ERROR_HTTP_STATUS[code] ?? 500;
     this.provider = options.provider ?? null;
     this.failureCategory = options.failureCategory ?? code;
+    this.retryable = options.retryable ?? false;
     if (options.cause !== undefined) {
       this.cause = options.cause;
     }
   }
 
   toResponseBody() {
-    return { success: false, error: { code: this.code, message: this.message } };
+    return {
+      success: false,
+      retryable: this.retryable,
+      error: {
+        code: this.code,
+        message: this.message,
+      },
+    };
   }
 }
 
@@ -67,35 +75,41 @@ export function toApiError(cause, context = {}) {
     return new AnimeApiError(ERROR_CODES.ANIME_NOT_FOUND, 'The requested anime was not found', {
       provider,
       cause,
+      retryable: false,
     });
   }
   if (status === 429) {
     return new AnimeApiError(ERROR_CODES.RATE_LIMITED, 'The provider is rate-limiting requests', {
       provider,
       cause,
+      retryable: true,
     });
   }
   if (status !== undefined && status >= 400 && status < 500) {
     return new AnimeApiError(ERROR_CODES.UPSTREAM_BLOCKED, 'The provider rejected the request', {
       provider,
       cause,
+      retryable: false,
     });
   }
   if (status !== undefined && status >= 500) {
     return new AnimeApiError(ERROR_CODES.PROVIDER_UNAVAILABLE, 'The provider is unavailable', {
       provider,
       cause,
+      retryable: true,
     });
   }
   if (cause?.name === 'TimeoutError' || cause?.code === 'ETIMEDOUT' || cause?.isTimeout) {
     return new AnimeApiError(ERROR_CODES.TIMEOUT, 'The provider did not respond in time', {
       provider,
       cause,
+      retryable: true,
     });
   }
   return new AnimeApiError(ERROR_CODES.NETWORK_ERROR, 'The provider could not be reached', {
     provider,
     cause,
+    retryable: true,
   });
 }
 

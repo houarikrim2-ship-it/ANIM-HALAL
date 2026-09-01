@@ -266,8 +266,11 @@ test('catalog: provider failure degrades to empty list, not an error', async () 
 test('sources: requested provider works', async () => {
   const { sources, provider } = await episodeSources('watch/kiwi/21/sub/kip-1');
   assert.equal(provider, 'miruro');
-  assert.equal(sources.length, 1, 'embed sources are filtered out');
+  assert.equal(sources.length, 2, 'embed sources are now allowed');
   assert.equal(sources[0].url, 'https://cdn.example.com/kiwi-1.m3u8?tok=1');
+  assert.equal(sources[0].isEmbed, false);
+  assert.equal(sources[1].url, 'https://embed.example.com/player');
+  assert.equal(sources[1].isEmbed, true);
   assert.equal(sources[0].provider, 'kiwi');
   assert.equal(sources[0].language, 'sub');
   assert.equal(sources[0].subtitles.length, 1);

@@ -203,6 +203,32 @@ test('witanime: decodeIframeResources strips param junk and appends yonaplay key
 
 // ── URL safety ──────────────────────────────────────────────────────────────
 
+test('support: isStaticAssetUrl classifies images/statics but never real media', () => {
+  const { isStaticAssetUrl } = testState.support;
+  const assets = [
+    'https://w1.anime4up.rest/wp-content/uploads/2020/12/5SFG454DHSFRDG96',
+    'https://w1.anime4up.rest/wp-content/uploads/2020/12/poster.jpg',
+    'https://w1.anime4up.rest/wp-includes/css/main.css',
+    'https://cdn.example.com/favicon.ico',
+    'https://cdn.example.com/img/thumb.png',
+    'https://cdn.example.com/file?imagedelivery=abc',
+    'data:image/png;base64,iVBOR',
+  ];
+  for (const url of assets) {
+    assert.equal(isStaticAssetUrl(url), true, `should classify as static: ${url}`);
+  }
+  const media = [
+    'https://w1.anime4up.rest/v/2.mp4',
+    'https://w1.anime4up.rest/v/2.m3u8',
+    'https://cdn.anime4up.example/2.m3u8',
+    'https://cdn.premilkyway.com/p/a0/master.m3u8?token=abc',
+    'https://cdn.example.com/v.m3u8',
+  ];
+  for (const url of media) {
+    assert.equal(isStaticAssetUrl(url), false, `should NOT classify as static: ${url}`);
+  }
+});
+
 test('support: isSafePublicUrl rejects private/loopback/reserved hosts', () => {
   const { isSafePublicUrl } = testState.support;
   for (const url of [
@@ -269,11 +295,13 @@ anime4upServer.on('request', (req, res) => {
     res.end(
       htmlPage(`
         <div id="episode-servers">
+          <li data-video="https://w1.anime4up.rest/wp-content/uploads/2020/12/5SFG454DHSFRDG96" data-name="ملصق الحلقة">server</li>
           <li data-watch="https://w1.anime4up.rest/v/2.mp4" data-name="سيرفر FHD">server</li>
           <li data-watch="https://w1.anime4up.rest/v/2.m3u8" data-name="سيرفر HD">server</li>
           <li data-watch="https://embed.example/v2?id=99" data-name="سيرفر مباشر">server</li>
           <li data-watch="https://embed2.example/v?id=7" data-name="سيرفر إضافي">server</li>
         </div>
+        <img data-src="https://w1.anime4up.rest/wp-content/uploads/2020/12/poster.jpg" alt="poster">
         <script>
           var jwConfig = { sources: [{ file: "https://cdn.anime4up.example/2.m3u8", label: "HD" }] };
         </script>`),
@@ -301,7 +329,13 @@ test('anime4up: full chain search -> episode -> sources (embeds dropped)', async
   assert.ok(urls.includes('https://w1.anime4up.rest/v/2.mp4'));
   assert.ok(urls.includes('https://w1.anime4up.rest/v/2.m3u8'));
   assert.ok(urls.includes('https://cdn.anime4up.example/2.m3u8'));
-  assert.ok(!urls.some((url) => url.includes('embed.example')), 'embed pages must be dropped');
+  assert.ok(urls.some((url) => url.includes('embed.example')), 'unresolved embed pages should be included as fallback');
+  // A poster / thumbnail image (extensionless or .jpg) must NEVER become a
+  // playable source or an embed server.
+  assert.ok(
+    urls.every((url) => !url.includes('wp-content/uploads')),
+    'poster/thumbnail images must never be discovered as servers',
+  );
   const fhd = sources.find((source) => source.url === 'https://w1.anime4up.rest/v/2.mp4');
   assert.equal(fhd.quality, '1080p');
   assert.equal(fhd.provider, 'anime4up');
@@ -367,14 +401,15 @@ witanimeServer.on('request', (req, res) => {
   res.end(htmlPage('Not found'));
 });
 
-test('witanime: unknown embed hosts are skipped without any network call', async () => {
+test('witanime: unknown embed hosts are returned as fallback without network call', async () => {
   const sources = await testState.witanime.resolveEpisodeSources(
     `http://127.0.0.1:${portOf(witanimeServer)}/anime/one-piece/2`,
   );
   const urls = sources.map((source) => source.url);
-  assert.equal(urls.length, 2, 'only direct download URLs, embeds unresolved');
+  assert.equal(urls.length, 4, '2 direct + 2 fallback embed sources');
   assert.ok(urls.includes('https://cdn.witanime.example/full/ep-2.mp4'));
   assert.ok(urls.includes('https://cdn.witanime.example/full/ep-2.m3u8'));
+  assert.ok(urls.includes('https://embed.example/e/xyz'));
 });
 
 test('witanime: watch-server embeds appended via injected resolveEmbed', async () => {
@@ -419,7 +454,7 @@ test('witanime: failing embed resolver never breaks the source list', async () =
     `http://127.0.0.1:${portOf(witanimeServer)}/anime/one-piece/2`,
     { resolveEmbed, timeoutMs: 2000 },
   );
-  assert.equal(sources.length, 3, 'direct sources survive a broken embed');
+  assert.equal(sources.length, 4, 'direct sources survive a broken embed, which returns as fallback');
   assert.ok(sources.every((source) => source.provider === 'witanime' || source.provider === 'vidas'));
 });
 

@@ -1,31 +1,26 @@
 /**
  * Anime4Up scraper provider (anime4up.rest / w1.anime4up.rest mirrors).
- *
- * WordPress Arabic streaming site. The anime page lists episodes as anchors
- * (`.episodesList .ep_num`, `ul.episodes li`, ...) whose URLs carry the
- * episode number; the watch page renders server rows inside containers such
- * as `#episode-servers` with `data-watch`/`data-src`/`data-video` attributes
- * and jwplayer-style `file`/`label` JSON inside scripts.
- *
- * Extraction rules (mirror the Android ArabicSiteAdapter):
- * - Server rows whose target is a directly playable media URL (.m3u8/.mp4/
- *   .webm/.m4v) become sources.
- * - Server rows whose target is an embed page are deliberately skipped: the
- *   backend never follows embed players or bypasses anti-bot protection.
- * - jwplayer `sources:[{file,label}]` entries are accepted when direct media.
- *
- * The relay re-validates every host at playback time against its allowlist.
  */
 import { ANIME_ANIME4UP_BASE_URL, ANIME_SCRAPER_TIMEOUT_MS } from '../config.js';
 import { AnimeApiError, ERROR_CODES } from '../errors.js';
 import { normalizeStreamSource, normalizeUrl } from '../normalize.js';
 import {
+  canonicalEmbedProvider,
   decodeHtmlAttribute,
+  embedFallbackSource,
   fetchHtml,
   inferScraperQuality,
+  isNonPlayableEmbedUrl,
   isSafePublicUrl,
+  isStaticAssetUrl,
+  normalizeEmbedResult,
+  normalizeTitle,
+  opportunisticDirectProbe,
+  calculateTitleScore,
+  sanitizeScraperLabel,
   withScraperGuard,
 } from './scraperSupport.js';
+import { toDirectStreamUrl } from './witanimeScraper.js';
 
 export const NAME = 'anime4up';
 export const PROVIDER_ID = 'anime4up';
@@ -59,13 +54,13 @@ const EPISODE_LINK_PATTERNS = [
 const GENERIC_TAIL_PATTERN = /\/(\d{1,4})\/?$/;
 
 const SEARCH_LINK_PATTERNS = [
-  /<h3[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/gi,
-  /<a[^>]+class="[^"]*(?:anime-card-title|post-title|anime-item|search-item|post-card)[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/gi,
+  /<(?:div|h[123]|a)[^>]*class="[^"]*anime-card-title[^"]*"[^>]*>[\s\S]*?<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/gi,
+  /<h[123][^>]*class="[^"]*(?:entry-title|post-title|anime-title)[^"]*"[^>]*>[\s\S]*?<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/gi,
+  /<a[^>]+class="[^"]*(?:anime-card-title|post-title|anime-item|search-item|post-card|anime-title)[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/gi,
   /<article[^>]*>[\s\S]*?<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/gi,
-  /<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/gi,
 ];
 
-const EPISODE_LINK_PATTERN = /<a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/gi;
+const EPISODE_LINK_PATTERN = /<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
 
 const PLAYER_SOURCES_REGEX = /sources\s*:\s*\[\s*\{([\s\S]*?)\}\s*\]/gi;
 const FILE_LABEL_REGEX = /file\s*:\s*"([^"]+)"\s*,\s*label\s*:\s*"([^"]*)"/gi;
@@ -76,17 +71,82 @@ const BARE_FILE_REGEX = /file\s*:\s*"(https?:\/\/[^"]+\.(?:m3u8|mp4|webm|m4v)[^"
 export async function searchAnimePage(title, options = {}) {
   return withScraperGuard(NAME, async () => {
     const query = String(title ?? '').trim();
-    if (query === '') {
-      return null;
-    }
+    if (query === '') return null;
     const base = options.baseUrl ?? ANIME_ANIME4UP_BASE_URL;
-    const searchUrl = `${base}/?s=${encodeURIComponent(query)}`;
+    const searchUrl = `${base}/?search_param=animes&s=${encodeURIComponent(query)}`;
     const { text, finalUrl } = await fetchHtml(searchUrl, {
       provider: NAME,
       timeoutMs: options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS,
     });
     return pickBestResult(text, finalUrl, query);
   });
+}
+
+/** Full details for an anime from its Anime4Up page. */
+export async function info(animeId, options = {}) {
+    return withScraperGuard(NAME, async () => {
+        const url = animeId.startsWith('http') ? animeId : `${ANIME_ANIME4UP_BASE_URL}/anime/${animeId}/`;
+        const { text, finalUrl } = await fetchHtml(url, {
+            provider: NAME,
+            timeoutMs: options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS,
+        });
+
+        const title = text.match(/<h1[^>]*class="[^"]*anime-details-title[^"]*"[^>]*>(.*?)<\/h1>/i)?.[1]?.trim();
+        const story = text.match(/<p[^>]*class="[^"]*anime-story[^"]*"[^>]*>([\s\S]*?)<\/p>/i)?.[1]?.trim();
+        const cover = text.match(/<img[^>]*class="[^"]*thumbnail[^"]*"[^>]*src="([^"]+)"/i)?.[1];
+
+        const genres = [];
+        const genreRe = /<ul\s+class="[^"]*anime-genres[^"]*"[^>]*>([\s\S]*?)<\/ul>/i;
+        const genreHtml = genreRe.exec(text)?.[1] || '';
+        const itemRe = /<a[^>]*>(.*?)<\/a>/gi;
+        let m;
+        while ((m = itemRe.exec(genreHtml)) !== null) {
+            genres.push(m[1].trim());
+        }
+
+        const statusMatch = text.match(/<div[^>]*class="[^"]*anime-info[^"]*"[^>]*>[\s\S]*?<span>حالة الأنمي :<\/span>[\s\S]*?<a[^>]*>(.*?)<\/a>/i);
+        const status = statusMatch ? (statusMatch[1].includes('مستمر') ? 'Ongoing' : 'Completed') : 'Unknown';
+
+        return {
+            id: animeId,
+            title: { romaji: title, english: title, native: title },
+            coverImage: { large: cover, extraLarge: cover },
+            description: story,
+            genres,
+            status,
+            provider: NAME
+        };
+    });
+}
+
+/** Catalog rows (popular/trending) from Anime4Up. */
+export async function catalog(kind, { page = 1 } = {}) {
+    return withScraperGuard(NAME, async () => {
+        const path = kind === 'popular' ? `/anime-list-3/page/${page}/` : `/?s=`;
+        const url = `${ANIME_ANIME4UP_BASE_URL}${path}`;
+        const { text, finalUrl } = await fetchHtml(url, {
+            provider: NAME,
+            timeoutMs: ANIME_SCRAPER_TIMEOUT_MS,
+        });
+
+        const out = [];
+        // Updated regex to capture Anime4Up's card structure more reliably
+        const cardRe = /<div\s+class="[^"]*anime-card-poster[^"]*"[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"[^>]+alt="([^"]+)"[\s\S]*?<a\s+href="([^"]+)"/gi;
+        let match;
+        while ((match = cardRe.exec(text)) !== null) {
+            const animeUrl = match[3];
+            const animeId = animeUrl.split('/').filter(Boolean).pop();
+            if (animeId) {
+                out.push({
+                    id: animeId,
+                    title: { romaji: match[2], english: match[2], native: match[2] },
+                    coverImage: { large: match[1], extraLarge: match[1] },
+                    provider: NAME
+                });
+            }
+        }
+        return out;
+    });
 }
 
 /**
@@ -100,9 +160,7 @@ export async function episodePageUrl(animePageUrl, number, options = {}) {
       timeoutMs: options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS,
     });
     const episodes = extractEpisodes(text, finalUrl);
-    if (episodes.length === 0) {
-      return null;
-    }
+    if (episodes.length === 0) return null;
     const target = Number(number);
     const exact = episodes.find((entry) => entry.number === target);
     const entry = exact ?? episodes
@@ -114,12 +172,6 @@ export async function episodePageUrl(animePageUrl, number, options = {}) {
 
 /**
  * Resolves playable media sources from an Anime4Up episode page.
- *
- * Direct media rows become sources immediately. Embed rows (StreamWish /
- * Vidas / YonaPlay players) are followed through the host extractor chain:
- * each embed is fetched with bounded timeouts and one failing host is
- * omitted — it never breaks the request. Only direct URLs survive
- * normalization (and later the relay allowlist).
  */
 export async function resolveEpisodeSources(episodePageUrl, options = {}) {
   return withScraperGuard(NAME, async () => {
@@ -129,67 +181,112 @@ export async function resolveEpisodeSources(episodePageUrl, options = {}) {
       timeoutMs: options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS,
     });
     const origin = new URL(finalUrl).origin;
-    const candidates = extractServerRows(text, finalUrl);
+
+    const watchEmbeds = extractWatchServersEmbed(text, finalUrl);
+    const watchCandidates = extractServerRows(text, finalUrl);
     const scriptCandidates = extractPlayerFileEntries(text, finalUrl);
+    const downloadCandidates = extractDownloadLinks(text, finalUrl);
+
+    console.log(`[anime4up] DISCOVERED_CANDIDATES watch_embed=${watchEmbeds.length} watch=${watchCandidates.length} script=${scriptCandidates.length} download=${downloadCandidates.length}`);
 
     const sources = [];
     const seenUrls = new Set();
-    const embeds = [];
-    for (const candidate of [...candidates, ...scriptCandidates]) {
-      if (!isSafePublicUrl(candidate.url)) {
-        continue;
-      }
+
+    const processCandidate = async (candidate, kind) => {
+      if (!isSafePublicUrl(candidate.url)) return;
+      if (isStaticAssetUrl(candidate.url)) return;
+      if (isNonPlayableEmbedUrl(candidate.url)) return;
+
+      const directCandidate = toDirectStreamUrl(candidate.url);
+      const probe = await opportunisticDirectProbe(directCandidate, { referer: finalUrl, provider: NAME });
+      if (!probe?.safe) return;
+
+      const safeLabel = sanitizeScraperLabel(candidate.label);
       const normalized = normalizeStreamSource(
         {
-          url: candidate.url,
+          url: probe.url,
           referer: finalUrl,
           origin,
-          label: candidate.label ?? null,
+          label: safeLabel,
           quality: candidate.quality ?? null,
+          type: probe.type,
         },
-        { providerName: NAME, language: 'sub', baseUrl: finalUrl },
+        { providerName: NAME, language: 'sub', baseUrl: finalUrl, sourceKind: kind },
       );
-      if (normalized !== null) {
+
+      if (normalized !== null && normalized.extractionStatus === 'DIRECT') {
         if (!seenUrls.has(normalized.url)) {
           seenUrls.add(normalized.url);
           sources.push(normalized);
+          console.log(`[anime4up] PROVIDER_ADDED name=${kind} url=${normalized.url.substring(0, 100)} type=DIRECT`);
         }
-        continue;
+        return;
       }
-      // Valid http(s) URL that is not direct media -> embed page to follow.
-      embeds.push({ url: candidate.url, name: candidate.label ?? '' });
-    }
 
-    for (const embed of embeds) {
-      let resolved;
-      try {
-        resolved = await resolveEmbed(embed.url, {
-          timeoutMs: options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS,
-        });
-      } catch (err) {
-        console.warn(`[anime4up] embed ${embed.url} skipped: ${err?.message ?? err}`);
-        continue;
+      // If not direct media, attempt embed resolution if it's a WATCH source or a known player host
+      const isWatch = kind === 'WATCH';
+      const canonicalProvider = canonicalEmbedProvider(directCandidate);
+      const isKnownPlayer = canonicalProvider !== null && canonicalProvider !== 'download';
+
+      if (isWatch || isKnownPlayer) {
+          console.log(`[anime4up] PROVIDER_ATTEMPT_EMBED name=${safeLabel} url=${directCandidate}`);
+          let result;
+          try {
+            result = await resolveEmbed(directCandidate, {
+              timeoutMs: options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS,
+              sourceKind: kind
+            });
+          } catch (err) {
+            result = { sources: [], error: err.message, extractionStatus: 'FAILED' };
+          }
+
+          const resolved = normalizeEmbedResult(result);
+          if (resolved.extractionStatus === 'DIRECT') {
+            for (const source of resolved.sources) {
+              if (seenUrls.has(source.url)) continue;
+              seenUrls.add(source.url);
+              sources.push({
+                ...source,
+                sourceKind: kind,
+                quality: source.quality !== 'auto' ? source.quality : (inferScraperQuality(candidate.label) ?? 'auto'),
+              });
+            }
+          } else if (resolved.extractionStatus === 'EMBED' || (resolved.extractionStatus === 'FAILED' && resolved.status !== 404)) {
+            const finalProvider = canonicalProvider ?? NAME;
+            const fallback = normalizeStreamSource(
+              { ...candidate, url: directCandidate, name: safeLabel ?? finalProvider, type: kind === 'DOWNLOAD' ? 'download' : 'embed' },
+              { providerName: finalProvider, allowEmbeds: true, baseUrl: finalUrl, sourceKind: kind }
+            );
+            if (fallback && fallback.extractionStatus === 'EMBED' && !seenUrls.has(fallback.url)) {
+              seenUrls.add(fallback.url);
+              sources.push(fallback);
+            }
+          }
       }
-      for (const source of resolved) {
-        if (seenUrls.has(source.url)) {
-          continue;
-        }
-        seenUrls.add(source.url);
-        sources.push({
-          ...source,
-          quality: source.quality !== 'auto'
-            ? source.quality
-            : (inferScraperQuality(embed.name) ?? 'auto'),
-        });
-      }
-    }
-    if (sources.length === 0 && candidates.length === 0 && scriptCandidates.length === 0) {
-      throw new AnimeApiError(ERROR_CODES.STREAM_UNAVAILABLE, 'Anime4Up: no media entries found', {
+    };
+
+    // Parallelize mirror processing to avoid sequential timeouts
+    const allCandidates = [
+        ...watchEmbeds.map(c => ({ c, kind: 'WATCH' })),
+        ...watchCandidates.map(c => ({ c, kind: 'WATCH' })),
+        ...scriptCandidates.map(c => ({ c, kind: 'WATCH' })),
+        ...downloadCandidates.map(c => ({ c, kind: 'DOWNLOAD' }))
+    ];
+
+    await Promise.allSettled(allCandidates.map(item => processCandidate(item.c, item.kind)));
+
+    if (sources.length === 0) {
+      throw new AnimeApiError(ERROR_CODES.STREAM_UNAVAILABLE, 'Anime4Up: no playable sources found', {
         provider: NAME,
         failureCategory: 'SOURCE_NOT_FOUND',
       });
     }
-    return sources;
+
+    return sources.sort((a, b) => {
+        if (a.extractionStatus === 'DIRECT' && b.extractionStatus !== 'DIRECT') return -1;
+        if (a.extractionStatus !== 'DIRECT' && b.extractionStatus === 'DIRECT') return 1;
+        return 0;
+    });
   });
 }
 
@@ -197,6 +294,77 @@ export async function resolveEpisodeSources(episodePageUrl, options = {}) {
 async function registryResolveEmbed(embedUrl, options) {
   const { resolveEmbed } = await import('../../extractors/registry.js');
   return resolveEmbed(embedUrl, options);
+}
+
+function extractWatchServersEmbed(html, baseUrl) {
+    const out = [];
+    const seen = new Set();
+
+    const patterns = [
+        { name: 'watch_fhd', quality: '1080p' },
+        { name: 'watch_hd', quality: '720p' },
+        { name: 'watch_SD', quality: '480p' }
+    ];
+
+    patterns.forEach(p => {
+        const re = new RegExp(`name=['"]${p.name}['"]\\s+value=['"]([^'"]+)['"]`, 'i');
+        const match = re.exec(html);
+        if (match) {
+            try {
+                const decoded = Buffer.from(match[1], 'base64').toString('utf8');
+                const json = JSON.parse(decoded);
+                if (Array.isArray(json)) {
+                    json.forEach(s => {
+                        if (s.link) {
+                            const url = normalizeUrl(s.link, baseUrl);
+                            if (url && !seen.has(url)) {
+                                seen.add(url);
+                                out.push({ url, label: s.name || p.name, quality: p.quality });
+                            }
+                        }
+                    });
+                }
+            } catch (e) {
+                console.warn(`[anime4up] failed to decode ${p.name}`);
+            }
+        }
+    });
+    return out;
+}
+
+function extractDownloadLinks(html, baseUrl) {
+    const out = [];
+    const seen = new Set();
+    // Matches common download link patterns in Arabic WordPress themes
+    const re = /<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)(?:FHD|HD|SD|خارقة|عالية|متوسطة)[\s\S]*?<\/a>/gi;
+    let match;
+    while ((match = re.exec(html)) !== null) {
+        const url = normalizeUrl(decodeHtmlAttribute(match[1]), baseUrl);
+        if (url && !seen.has(url)) {
+            seen.add(url);
+            const label = stripTags(match[2]);
+            out.push({ url, label, quality: inferScraperQuality(label) || inferScraperQuality(url) });
+        }
+    }
+
+    // Fallback: look for <td> cells containing links near quality labels
+    const tdRe = /<td[^>]*>(.*?)<\/td>/gi;
+    while ((match = tdRe.exec(html)) !== null) {
+        const body = match[1];
+        const linkMatch = /<a[^>]+href="([^"]+)"/i.exec(body);
+        if (linkMatch) {
+            const url = normalizeUrl(decodeHtmlAttribute(linkMatch[1]), baseUrl);
+            if (url && !seen.has(url)) {
+                const quality = inferScraperQuality(body);
+                if (quality) {
+                    seen.add(url);
+                    out.push({ url, label: 'download', quality });
+                }
+            }
+        }
+    }
+
+    return out;
 }
 
 /** Extracts server-row candidates (data-* attributes) from the page HTML. */
@@ -207,9 +375,7 @@ function extractServerRows(html, baseUrl) {
     for (const attr of DATA_ATTRIBUTES) {
       const attrRe = new RegExp(`${attr}="([^"]*)"`, 'i');
       const attrMatch = attrRe.exec(raw);
-      if (!attrMatch) {
-        continue;
-      }
+      if (!attrMatch) continue;
       const url = normalizeUrl(decodeHtmlAttribute(attrMatch[1]), baseUrl);
       if (url !== null && !seen.has(url)) {
         seen.add(url);
@@ -219,7 +385,6 @@ function extractServerRows(html, baseUrl) {
     }
   };
 
-  // 1) Container-scoped scan: only server rows inside known containers.
   const containerTagRe = /<(div|ul|ol|section|table)\b[^>]*?(?:id|class)="([^"]*)"[^>]*>([\s\S]*?)(?:<\/\1>)/gi;
   let containerMatch;
   while ((containerMatch = containerTagRe.exec(html)) !== null) {
@@ -227,23 +392,29 @@ function extractServerRows(html, baseUrl) {
     const selector = SERVER_CONTAINER_SELECTORS.find((candidate) =>
       attrs.split(/\s+/).some((token) => token === candidate.slice(1) || token === candidate)
     );
-    if (!selector) {
-      continue;
-    }
+    if (!selector) continue;
     const body = containerMatch[3];
     const itemRe = new RegExp(`<${SERVER_ITEM_TAGS}[^>]*data-[^>]*>[\\s\\S]*?<\\/${SERVER_ITEM_TAGS}>`, 'gi');
     let itemMatch;
-    while ((itemMatch = itemRe.exec(body)) !== null) {
-      push(itemMatch[0]);
-    }
+    while ((itemMatch = itemRe.exec(body)) !== null) push(itemMatch[0]);
   }
 
-  // 2) Page-wide fallback: bare data-* rows outside styled containers.
   if (out.length === 0) {
     const bareRe = /<[a-z][^>]*?\b(data-(?:src|video|url|watch|embed|iframe))="([^"]*)"[^>]*>/gi;
     let bareMatch;
-    while ((bareMatch = bareRe.exec(html)) !== null) {
-      push(bareMatch[0]);
+    while ((bareMatch = bareRe.exec(html)) !== null) push(bareMatch[0]);
+
+    // Also look for raw iframes that look like watch servers
+    const iframeRe = /<iframe[^>]+src="([^"]+)"[^>]*>/gi;
+    while ((bareMatch = iframeRe.exec(html)) !== null) {
+        const url = normalizeUrl(decodeHtmlAttribute(bareMatch[1]), baseUrl);
+        if (url && !seen.has(url)) {
+            const cp = canonicalEmbedProvider(url);
+            if (cp && cp !== 'download') {
+                seen.add(url);
+                out.push({ url, label: cp, quality: 'auto' });
+            }
+        }
     }
   }
   return out;
@@ -272,34 +443,23 @@ function extractPlayerFileEntries(html, baseUrl) {
     }
   }
   FILE_LABEL_REGEX.lastIndex = 0;
-  while ((match = FILE_LABEL_REGEX.exec(html)) !== null) {
-    push(match[1], match[2]);
-  }
+  while ((match = FILE_LABEL_REGEX.exec(html)) !== null) push(match[1], match[2]);
   LABEL_FILE_REGEX.lastIndex = 0;
-  while ((match = LABEL_FILE_REGEX.exec(html)) !== null) {
-    push(match[2], match[1]);
-  }
+  while ((match = LABEL_FILE_REGEX.exec(html)) !== null) push(match[2], match[1]);
   BARE_FILE_REGEX.lastIndex = 0;
-  while ((match = BARE_FILE_REGEX.exec(html)) !== null) {
-    push(match[1], null);
-  }
+  while ((match = BARE_FILE_REGEX.exec(html)) !== null) push(match[1], null);
   return out;
 }
 
 function serverNameFrom(raw) {
   const nameMatch = /data-name="([^"]*)"/i.exec(raw);
-  if (nameMatch) {
-    return nameMatch[1].trim();
-  }
+  if (nameMatch) return nameMatch[1].trim();
   const titleMatch = /title="([^"]*)"/i.exec(raw);
-  if (titleMatch) {
-    return titleMatch[1].trim();
-  }
+  if (titleMatch) return titleMatch[1].trim();
   const textMatch = />([^<>]+)</.exec(raw);
   return textMatch ? textMatch[1].replace(/\s+/g, ' ').trim() : '';
 }
 
-/** Parses every episode link with its number from the anime page HTML. */
 function extractEpisodes(html, baseUrl) {
   const out = [];
   const seen = new Set();
@@ -308,14 +468,10 @@ function extractEpisodes(html, baseUrl) {
   while ((match = EPISODE_LINK_PATTERN.exec(html)) !== null) {
     const rawHref = decodeHtmlAttribute(match[1]);
     const url = normalizeUrl(rawHref, baseUrl);
-    if (url === null) {
-      continue;
-    }
+    if (url === null) continue;
     const label = stripTags(match[2]);
     const number = episodeNumberFrom(url, label);
-    if (number === null || seen.has(url)) {
-      continue;
-    }
+    if (number === null || seen.has(url)) continue;
     seen.add(url);
     out.push({ number, url });
   }
@@ -327,46 +483,31 @@ function episodeNumberFrom(url, label) {
     const match = pattern.exec(url) ?? pattern.exec(label);
     if (match) {
       const number = Number(match[1]);
-      if (Number.isInteger(number)) {
-        return number;
-      }
+      if (Number.isInteger(number)) return number;
     }
   }
   const tail = GENERIC_TAIL_PATTERN.exec(url.split('?')[0]);
   if (tail) {
     const number = Number(tail[1]);
-    if (Number.isInteger(number) && !(number >= 1900 && number <= 2099)) {
-      return number;
-    }
+    if (Number.isInteger(number) && !(number >= 1900 && number <= 2099)) return number;
   }
   return null;
 }
 
 function pickBestResult(html, baseUrl, query) {
   const links = extractSearchLinks(html, baseUrl);
-  if (links.length === 0) {
-    return null;
-  }
-  const tokens = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
-  if (tokens.length === 0) {
-    return links[0].url;
-  }
-  let best = null;
-  let bestScore = 0;
+  if (links.length === 0) return null;
+  let best = null, bestScore = -1000;
   for (const link of links) {
-    const label = link.label.toLowerCase();
-    let score = 0;
-    for (const token of tokens) {
-      if (label.includes(token)) {
-        score += 1;
-      }
-    }
+    let score = calculateTitleScore(query, link.label);
+    if (link.url.includes('/anime/')) score += 20;
+    if (!query.toLowerCase().includes('recap') && (link.label.toLowerCase().includes('recap') || link.label.includes('ملخص'))) score -= 30;
     if (score > bestScore) {
       best = link.url;
       bestScore = score;
     }
   }
-  return best ?? links[0].url;
+  return best ?? (links.length > 0 ? links[0].url : null);
 }
 
 function extractSearchLinks(html, baseUrl) {
@@ -386,8 +527,5 @@ function extractSearchLinks(html, baseUrl) {
 }
 
 function stripTags(html) {
-  return String(html)
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return String(html).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }

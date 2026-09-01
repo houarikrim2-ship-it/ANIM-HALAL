@@ -1,32 +1,12 @@
 /**
  * URL + response normalization for the anime source layer.
- *
- * Providers return their own shapes; this module converts them into the
- * stable internal models consumed by the routes and the Android client.
- *
- * URL rules:
- * - absolute URLs pass through unchanged (signed URLs are never re-encoded)
- * - relative / protocol-relative URLs are resolved against their base
- * - non-http(s) URLs are rejected
- * - URLs are never double-encoded and query parameters are never rewritten
  */
 import { DIRECT_MEDIA_URL_REGEX, MEDIA_MIME_TYPES, WATCH_EPISODE_ID_PATTERN } from './config.js';
 
-/**
- * Normalizes [raw] against [base]. Returns null when the result is not a
- * usable http(s) URL.
- *
- * The original string is returned untouched when it is already an absolute
- * http(s) URL — this preserves signed URLs and their exact query strings.
- */
 export function normalizeUrl(raw, base = null) {
-  if (raw === undefined || raw === null) {
-    return null;
-  }
+  if (raw === undefined || raw === null) return null;
   const trimmed = String(raw).trim();
-  if (trimmed === '') {
-    return null;
-  }
+  if (trimmed === '') return null;
   try {
     if (trimmed.startsWith('//')) {
       const resolved = new URL(trimmed, base ?? 'https://placeholder.invalid');
@@ -41,54 +21,46 @@ export function normalizeUrl(raw, base = null) {
       return resolved.protocol === 'http:' || resolved.protocol === 'https:' ? resolved.href : null;
     }
     return null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-/** True when [url] looks like a directly playable media resource. */
 export function isDirectMediaUrl(url) {
-  return DIRECT_MEDIA_URL_REGEX.test(url);
+  if (typeof url !== 'string') return false;
+  const path = url.split('?')[0].split('#')[0].toLowerCase();
+  if (DIRECT_MEDIA_URL_REGEX.test(url)) return true;
+  if (path.includes('/hls/') || path.includes('/m3u8/')) return true;
+  if (/playlist\.m3u8|master\.m3u8|chunklist\.m3u8|index\.m3u8|tracks-v\d+a\d+/i.test(path)) return true;
+  if (/\.(ts|m4s|mp4|m4v|webm)$/i.test(path)) return true;
+  // OK.ru / VK mirrors
+  if (url.includes('vkuser.net')) return true;
+  return false;
 }
 
-/**
- * Normalizes a provider stream entry into the stable StreamSource model.
- *
- * Only directly playable media URLs (HLS playlists, MP4/WebM/M4V files) are
- * accepted. Embed pages, CAPTCHA pages and HTML endpoints are rejected with
- * [UNSUPPORTED_SOURCE] semantics (null return) — the provider layer is never
- * asked to bypass anti-bot protection.
- */
 export function normalizeStreamSource(stream, context = {}) {
-  if (stream === null || typeof stream !== 'object') {
-    return null;
-  }
+  if (stream === null || typeof stream !== 'object') return null;
   const rawUrl = stream.url ?? stream.file;
-  if (typeof rawUrl !== 'string' || rawUrl.trim() === '') {
-    return null;
-  }
+  if (typeof rawUrl !== 'string' || rawUrl.trim() === '') return null;
   const url = normalizeUrl(rawUrl, context.baseUrl ?? null);
-  if (url === null || !isDirectMediaUrl(url)) {
-    return null;
-  }
+  if (url === null) return null;
 
-  const isHls = /\.m3u8([?#]|$)/i.test(url);
-  const rawType = String(stream.type ?? (isHls ? 'hls' : 'mp4')).toLowerCase();
-  const type = isHls ? 'hls' : rawType === 'hls' ? 'hls' : 'progressive';
-  const mimeType =
-    stream.mimeType ??
-    MEDIA_MIME_TYPES[isHls ? 'hls' : detectMediaKind(url)] ??
-    'application/octet-stream';
+  const rawType = String(stream.type ?? '').toLowerCase();
+  const isDirect = isDirectMediaUrl(url) || rawType === 'hls' || rawType === 'mp4' || rawType === 'progressive';
+  const allowEmbeds = context.allowEmbeds === true;
+
+  if (!isDirect && !allowEmbeds) return null;
+
+  const isHls = isDirect && (/\.m3u8([?#]|$)/i.test(url) || rawType === 'hls');
+  const type = isDirect
+    ? (isHls ? 'hls' : (rawType === 'hls' ? 'hls' : 'progressive'))
+    : (rawType === 'download' ? 'download' : 'embed');
+
+  const mimeType = isDirect
+    ? (stream.mimeType ?? MEDIA_MIME_TYPES[isHls ? 'hls' : detectMediaKind(url)] ?? 'application/octet-stream')
+    : (stream.mimeType ?? (type === 'download' ? 'application/octet-stream' : 'text/html'));
 
   const headers = {};
-  if (typeof stream.referer === 'string' && stream.referer.trim() !== '') {
-    headers.Referer = stream.referer.trim();
-  }
-  if (typeof stream.origin === 'string' && stream.origin.trim() !== '') {
-    headers.Origin = stream.origin.trim();
-  }
-  // Only honestly-declared playback headers are forwarded. Authentication
-  // credentials, cookies and private tokens are never accepted here.
+  if (typeof stream.referer === 'string' && stream.referer.trim() !== '') headers.Referer = stream.referer.trim();
+  if (typeof stream.origin === 'string' && stream.origin.trim() !== '') headers.Origin = stream.origin.trim();
 
   const subtitles = Array.isArray(stream.subtitles)
     ? stream.subtitles
@@ -98,6 +70,9 @@ export function normalizeStreamSource(stream, context = {}) {
 
   return {
     url,
+    name: typeof stream.name === 'string' && stream.name.trim() !== ''
+      ? stream.name.trim()
+      : context.providerName ?? 'unknown',
     type,
     quality: typeof stream.quality === 'string' && stream.quality.trim() !== ''
       ? stream.quality.trim()
@@ -106,10 +81,16 @@ export function normalizeStreamSource(stream, context = {}) {
         : 'auto',
     mimeType,
     isHls,
+    isEmbed: !isDirect && type === 'embed',
     headers: Object.keys(headers).length > 0 ? headers : null,
     subtitles,
-    provider: context.providerName ?? 'unknown',
+    provider:
+      (typeof stream.provider === 'string' && stream.provider.trim() !== ''
+        ? stream.provider.trim()
+        : context.providerName) ?? 'unknown',
     language: context.language ?? 'sub',
+    extractionStatus: stream.extractionStatus ?? (isDirect ? 'DIRECT' : (type === 'download' ? 'UNRESOLVED' : 'EMBED')),
+    sourceKind: context.sourceKind ?? 'WATCH',
   };
 }
 
@@ -118,19 +99,12 @@ function detectMediaKind(url) {
   return match ? match[1].toLowerCase() : 'mp4';
 }
 
-/** Normalizes a subtitle track entry; null when unusable. */
 export function normalizeSubtitle(sub, baseUrl = null) {
-  if (sub === null || typeof sub !== 'object') {
-    return null;
-  }
+  if (sub === null || typeof sub !== 'object') return null;
   const rawUrl = sub.url ?? sub.file;
-  if (typeof rawUrl !== 'string') {
-    return null;
-  }
+  if (typeof rawUrl !== 'string') return null;
   const url = normalizeUrl(rawUrl, baseUrl);
-  if (url === null) {
-    return null;
-  }
+  if (url === null) return null;
   return {
     url,
     label: sub.label ?? sub.language ?? sub.lang ?? 'und',
@@ -139,15 +113,45 @@ export function normalizeSubtitle(sub, baseUrl = null) {
   };
 }
 
-/** Parses a Miruro-style episode id ("watch/{provider}/{anilistId}/{category}/{slug}"). */
+const QUALITY_RANK_GROUPS = [
+  (q) => q.includes('fhd') || q.includes('1080'),
+  (q) => q.includes('hd') || q.includes('720'),
+  (q) => q.includes('sd') || q.includes('480'),
+];
+
+function qualityRank(quality) {
+  const lower = String(quality ?? '').toLowerCase();
+  const index = QUALITY_RANK_GROUPS.findIndex((matches) => matches(lower));
+  return index === -1 ? QUALITY_RANK_GROUPS.length : index;
+}
+
+export function sortSourcesByQuality(sources) {
+  if (!Array.isArray(sources)) return sources;
+  return [...sources].sort((a, b) => {
+    const byQuality = qualityRank(a.quality) - qualityRank(b.quality);
+    if (byQuality !== 0) return byQuality;
+    const byName = String(a.name ?? '').localeCompare(String(b.name ?? ''));
+    if (byName !== 0) return byName;
+    return String(a.url ?? '').localeCompare(String(b.url ?? ''));
+  });
+}
+
+export function finalizeSources(sources) {
+  if (!Array.isArray(sources)) return sources;
+  const seen = new Set();
+  const deduped = sources.filter((source) => {
+    if (source === null || typeof source !== 'object' || typeof source.url !== 'string') return false;
+    if (seen.has(source.url)) return false;
+    seen.add(source.url);
+    return true;
+  });
+  return sortSourcesByQuality(deduped);
+}
+
 export function parseWatchEpisodeId(episodeId) {
-  if (typeof episodeId !== 'string') {
-    return null;
-  }
+  if (typeof episodeId !== 'string') return null;
   const match = WATCH_EPISODE_ID_PATTERN.exec(episodeId.trim());
-  if (match === null) {
-    return null;
-  }
+  if (match === null) return null;
   return {
     provider: match[1],
     anilistId: match[2],
@@ -156,12 +160,6 @@ export function parseWatchEpisodeId(episodeId) {
   };
 }
 
-/**
- * Normalizes a Miruro watch response into a normalized source list.
- * Pipe payloads use either "streams" or "sources" as the array key, so both
- * are accepted. Non-direct-media entries (embed/HTML) are skipped, never
- * forwarded.
- */
 export function normalizeWatchSources(watchResponse, context = {}) {
   const streams = Array.isArray(watchResponse?.streams)
     ? watchResponse.streams
@@ -178,17 +176,16 @@ export function normalizeWatchSources(watchResponse, context = {}) {
           providerName: context.providerName ?? 'unknown',
           language: context.language ?? 'sub',
           baseUrl: context.baseUrl ?? null,
+          allowEmbeds: true,
+          sourceKind: context.sourceKind ?? 'WATCH',
         }
       )
     )
     .filter((source) => source !== null);
 
-  // Deduplicate by media URL (a provider may advertise the same stream twice).
   const seen = new Set();
   return sources.filter((source) => {
-    if (seen.has(source.url)) {
-      return false;
-    }
+    if (seen.has(source.url)) return false;
     seen.add(source.url);
     return true;
   });

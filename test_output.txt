@@ -1,0 +1,488 @@
+﻿ظ£¤ normalizeUrl: absolute https URL passes through unchanged (signed URLs preserved) (2.664ms)
+ظ£¤ normalizeUrl: relative URL resolves against the base (0.5191ms)
+ظ£¤ normalizeUrl: protocol-relative URL resolves to https (0.275ms)
+ظ£¤ normalizeUrl: non-http(s) and garbage inputs are rejected (0.21ms)
+ظ£¤ normalizeUrl: relative URL without a base is rejected (0.2611ms)
+ظ£¤ isDirectMediaUrl: accepts playable media suffixes with query/hash (0.4884ms)
+ظ£¤ isDirectMediaUrl: rejects embed pages, HTML and opaque URLs (0.5426ms)
+ظ£¤ parseWatchEpisodeId: parses the Miruro watch id shape (1.4068ms)
+ظ£¤ parseWatchEpisodeId: rejects malformed ids (0.2475ms)
+ظ£û normalizeStreamSource: HLS with headers and subtitles (2.4137ms)
+ظ£¤ normalizeStreamSource: explicit name wins over the provider fallback (0.5549ms)
+ظ£¤ normalizeStreamSource: embed pages are classified, not rejected (0.3389ms)
+ظ£¤ normalizeStreamSource: missing url yields null (5.4438ms)
+ظ£¤ normalizeStreamSource: progressive mp4 with origin header (0.3899ms)
+ظ£¤ normalizeWatchSources: accepts both streams and sources keys, dedupes by url (0.7483ms)
+ظ£¤ normalizeSubtitle: resolves relative urls, defaults missing fields (0.1829ms)
+ظ£¤ normalizeMiruroEpisode: resolvable watch ids are flagged (0.1958ms)
+ظ£¤ normalizeMiruroEpisode: unparseable ids are flagged non-resolvable (0.1582ms)
+ظ£¤ normalizeJikanEpisode: never resolvable (metadata only) (0.2105ms)
+ظ£¤ normalizeJikanAnime: stable summary with jikan_ namespace id (0.4891ms)
+ظ£¤ sortSourcesByQuality: deterministic quality ranking (FHD > HD > SD > auto) (13.0069ms)
+ظ£¤ sortSourcesByQuality: ties break by name then url, stable and total (0.1829ms)
+ظ£¤ finalizeSources: dedupes by url and sorts deterministically (3.6111ms)
+{"t":"2026-08-29T03:12:22.361Z","event":"anime.provider","provider":"miruro","requestType":"search","status":200,"latencyMs":47}
+ظ£¤ search: miruro results win when available (49.4065ms)
+{"t":"2026-08-29T03:12:22.371Z","event":"anime.provider","provider":"miruro","requestType":"search","status":503,"latencyMs":8,"failureCategory":"PROVIDER_UNAVAILABLE"}
+{"t":"2026-08-29T03:12:22.376Z","event":"anime.provider","provider":"jikan","requestType":"search","status":200,"latencyMs":5}
+ظ£¤ search: falls back to jikan when miruro is down (13.9043ms)
+{"t":"2026-08-29T03:12:22.380Z","event":"anime.provider","provider":"miruro","requestType":"search","status":503,"latencyMs":3,"failureCategory":"PROVIDER_UNAVAILABLE"}
+{"t":"2026-08-29T03:12:22.752Z","event":"anime.provider","provider":"jikan","requestType":"search","status":503,"latencyMs":371,"failureCategory":"PROVIDER_UNAVAILABLE"}
+ظ£¤ search: both providers down raises PROVIDER_UNAVAILABLE (375.9701ms)
+ظ£¤ search: empty query is INVALID_REQUEST (0.6059ms)
+{"t":"2026-08-29T03:12:22.759Z","event":"anime.provider","provider":"miruro","requestType":"search","status":200,"latencyMs":5}
+ظ£¤ search: results are cached (no second upstream hit) (6.2537ms)
+{"t":"2026-08-29T03:12:22.763Z","event":"anime.provider","provider":"miruro","requestType":"info","animeId":"21","status":200,"latencyMs":3}
+ظ£¤ info: numeric ids resolve through miruro (3.6382ms)
+{"t":"2026-08-29T03:12:23.115Z","event":"anime.provider","provider":"jikan","requestType":"info","animeId":"jikan_1","status":200,"latencyMs":351}
+ظ£¤ info: jikan_ ids resolve through jikan (351.2838ms)
+ظ£¤ info: unsupported id format is INVALID_REQUEST (0.3965ms)
+ظ£¤ info: missing anime raises ANIME_NOT_FOUND (2.4751ms)
+{"t":"2026-08-29T03:12:23.130Z","event":"anime.provider","provider":"miruro","requestType":"episodes","animeId":"21","status":200,"latencyMs":12}
+ظ£¤ episodes: keeps sub and dub variants, provider priority wins, resolvable flagged (13.1791ms)
+{"t":"2026-08-29T03:12:23.134Z","event":"anime.provider","provider":"miruro","requestType":"episodes","animeId":"999","status":404,"latencyMs":3,"failureCategory":"EPISODE_NOT_FOUND"}
+ظ£¤ episodes: no episodes raises EPISODE_NOT_FOUND (2.6213ms)
+{"t":"2026-08-29T03:12:23.473Z","event":"anime.provider","provider":"jikan","requestType":"episodes","animeId":"jikan_1","status":200,"latencyMs":339}
+ظ£¤ episodes: jikan_ ids return metadata episodes flagged non-resolvable (339.7577ms)
+{"t":"2026-08-29T03:12:23.489Z","event":"anime.provider","provider":"miruro","requestType":"catalog","status":200,"latencyMs":15}
+ظ£¤ catalog: allowed kinds return rows; invalid kind is INVALID_REQUEST (15.2329ms)
+{"t":"2026-08-29T03:12:23.490Z","event":"anime.provider","provider":"miruro","requestType":"catalog","status":503,"latencyMs":1,"failureCategory":"PROVIDER_UNAVAILABLE"}
+[Resolver] DISCOVERY_START episodeId=watch/kiwi/21/sub/kip-1 provider=kiwi
+ظ£¤ catalog: provider failure degrades to empty list, not an error (1.1851ms)
+{"t":"2026-08-29T03:12:23.505Z","event":"anime.provider","provider":"miruro","requestType":"sources","animeId":"21","episodeId":"watch/kiwi/21/sub/kip-1","status":200,"latencyMs":13,"attemptedProviders":["kiwi"]}
+[Resolver] DISCOVERY_SUCCESS source=PRIMARY provider=kiwi count=2
+[Resolver] DISCOVERY_START episodeId=watch/dead/21/sub/xxx-1 provider=dead
+ظ£¤ sources: requested provider works (14.508ms)
+{"t":"2026-08-29T03:12:23.506Z","event":"anime.provider","provider":"miruro","requestType":"sources","episodeId":"watch/dead/21/sub/xxx-1","status":404,"latencyMs":1,"failureCategory":"ANIME_NOT_FOUND","attemptedProviders":["dead"]}
+[Resolver] PRIMARY_FAILED provider=dead
+{"t":"2026-08-29T03:12:23.506Z","event":"anime.provider","provider":"miruro","requestType":"sources","animeId":"21","episodeId":"watch/dead/21/sub/xxx-1","status":null,"failureCategory":"EMPTY_SOURCES","attemptedProviders":["dead"]}
+{"t":"2026-08-29T03:12:23.519Z","event":"anime.provider","provider":"miruro","requestType":"episodes","animeId":"21","status":200,"latencyMs":13}
+{"t":"2026-08-29T03:12:23.535Z","event":"anime.provider","provider":"miruro","requestType":"sources","animeId":"21","episodeId":"watch/kiwi/21/sub/kip-1","status":200,"latencyMs":15,"attemptedProviders":["kiwi"]}
+{"t":"2026-08-29T03:12:23.535Z","event":"anime.provider","provider":"miruro","requestType":"sources","animeId":"21","episodeId":"watch/dead/21/sub/xxx-1","status":200,"failureCategory":"FALLBACK_USED","fallbackProvider":"kiwi","attemptedProviders":["dead","kiwi"]}
+[Resolver] DISCOVERY_SUCCESS source=FALLBACK provider=kiwi count=2
+[Resolver] DISCOVERY_START episodeId=watch/dead/21/dub/xxx-1 provider=dead
+ظ£¤ sources: primary failure falls back to same-number episode on another provider (29.9732ms)
+{"t":"2026-08-29T03:12:23.536Z","event":"anime.provider","provider":"miruro","requestType":"sources","episodeId":"watch/dead/21/dub/xxx-1","status":404,"latencyMs":1,"failureCategory":"ANIME_NOT_FOUND","attemptedProviders":["dead"]}
+[Resolver] PRIMARY_FAILED provider=dead
+{"t":"2026-08-29T03:12:23.536Z","event":"anime.provider","provider":"miruro","requestType":"sources","animeId":"21","episodeId":"watch/dead/21/dub/xxx-1","status":null,"failureCategory":"EMPTY_SOURCES","attemptedProviders":["dead"]}
+{"t":"2026-08-29T03:12:23.551Z","event":"anime.provider","provider":"miruro","requestType":"episodes","animeId":"21","status":200,"latencyMs":15}
+{"t":"2026-08-29T03:12:23.566Z","event":"anime.provider","provider":"miruro","requestType":"sources","animeId":"21","episodeId":"watch/kiwi/21/dub/kip-1","status":200,"latencyMs":15,"attemptedProviders":["kiwi"]}
+[Resolver] DISCOVERY_SUCCESS source=FALLBACK provider=kiwi count=2
+{"t":"2026-08-29T03:12:23.566Z","event":"anime.provider","provider":"miruro","requestType":"sources","animeId":"21","episodeId":"watch/dead/21/dub/xxx-1","status":200,"failureCategory":"FALLBACK_USED","fallbackProvider":"kiwi","attemptedProviders":["dead","kiwi"]}
+[Resolver] DISCOVERY_START episodeId=watch/dead/999/sub/xxx-1 provider=dead
+ظ£¤ sources: fallback preserves language (dub stays dub) (31.1655ms)
+{"t":"2026-08-29T03:12:23.581Z","event":"anime.provider","provider":"miruro","requestType":"sources","episodeId":"watch/dead/999/sub/xxx-1","status":404,"latencyMs":15,"failureCategory":"ANIME_NOT_FOUND","attemptedProviders":["dead"]}
+[Resolver] PRIMARY_FAILED provider=dead
+{"t":"2026-08-29T03:12:23.581Z","event":"anime.provider","provider":"miruro","requestType":"sources","animeId":"999","episodeId":"watch/dead/999/sub/xxx-1","status":null,"failureCategory":"EMPTY_SOURCES","attemptedProviders":["dead"]}
+{"t":"2026-08-29T03:12:23.597Z","event":"anime.provider","provider":"miruro","requestType":"episodes","animeId":"999","status":404,"latencyMs":16,"failureCategory":"EPISODE_NOT_FOUND"}
+[Resolver] SCRAPER_DISCOVERY_START title="xxx" ep=1
+[Resolver] SCRAPER_FAILED providers=[witanime, anime4up]
+{"t":"2026-08-29T03:12:24.400Z","event":"anime.provider","provider":"scraper","requestType":"sources","animeId":"999","episodeId":"watch/dead/999/sub/xxx-1","status":null,"failureCategory":"SOURCE_NOT_FOUND"}
+{"t":"2026-08-29T03:12:24.400Z","event":"anime.provider","provider":"scraper","requestType":"sources","animeId":"999","episodeId":"watch/dead/999/sub/xxx-1","status":null,"failureCategory":"SOURCE_NOT_FOUND"}
+ظ£¤ sources: all providers failing raises STREAM_UNAVAILABLE (834.2107ms)
+ظ£¤ sources: malformed episode id is INVALID_REQUEST (0.2823ms)
+{"t":"2026-08-29T03:12:22.674Z","event":"anime.provider","provider":"miruro","requestType":"search","status":200,"latencyMs":17}
+ظ£¤ GET /api/anime/search returns the stable envelope with cache header (49.6283ms)
+ظ£¤ GET /api/anime/search without q is INVALID_REQUEST (400) (5.4021ms)
+{"t":"2026-08-29T03:12:22.708Z","event":"anime.provider","provider":"miruro","requestType":"episodes","animeId":"21","status":200,"latencyMs":17}
+ظ£¤ GET /api/anime/episodes/:id returns deduped episodes (24.3943ms)
+[Resolver] DISCOVERY_START episodeId=watch/kiwi/21/sub/kip-1 provider=kiwi
+{"t":"2026-08-29T03:12:22.722Z","event":"anime.provider","provider":"miruro","requestType":"sources","animeId":"21","episodeId":"watch/kiwi/21/sub/kip-1","status":200,"latencyMs":8,"attemptedProviders":["kiwi"]}
+[Resolver] DISCOVERY_SUCCESS source=PRIMARY provider=kiwi count=1
+ظ£¤ GET /api/anime/episode/sources returns no-store sources (14.8366ms)
+[Resolver] DISCOVERY_START episodeId=watch/kiwi/21/sub/kip-1 provider=kiwi
+{"t":"2026-08-29T03:12:22.737Z","event":"anime.provider","provider":"miruro","requestType":"sources","animeId":"21","episodeId":"watch/kiwi/21/sub/kip-1","status":200,"latencyMs":11,"attemptedProviders":["kiwi"]}
+[Resolver] DISCOVERY_SUCCESS source=PRIMARY provider=kiwi count=1
+ظ£¤ sources carry name, quality, url and a relay-wrapped proxyUrl (14.6404ms)
+[Resolver] DISCOVERY_START episodeId=watch/kiwi/21/sub/kip-1 provider=kiwi
+{"t":"2026-08-29T03:12:22.748Z","event":"anime.provider","provider":"miruro","requestType":"sources","animeId":"21","episodeId":"watch/kiwi/21/sub/kip-1","status":200,"latencyMs":6,"attemptedProviders":["kiwi"]}
+[Resolver] DISCOVERY_SUCCESS source=PRIMARY provider=kiwi count=1
+ظ£¤ proxyUrl honors X-Forwarded-Proto/Host (Render proxy) (10.023ms)
+ظ£¤ GET /api/anime/episode/sources with a malformed id is 400 (18.327ms)
+{"t":"2026-08-29T03:12:22.784Z","event":"anime.provider","provider":"miruro","requestType":"catalog","status":200,"latencyMs":15}
+ظ£¤ GET /api/anime/trending returns catalog rows (17.1686ms)
+ظ£¤ GET /api/anime/providers reports diagnostics without secrets (15.4386ms)
+ظ£¤ unknown /api/anime path is 404 with the relay envelope (2.9348ms)
+ظ£¤ HLS relay routes still work alongside the anime routes (2.1853ms)
+ظ£¤ witanime: decodeEpisodeGrid restores episode numbers + URLs (40.2814ms)
+ظ£¤ witanime: decodeEpisodeGrid rejects malformed payloads (1.181ms)
+ظ£¤ witanime: decodeDownloadUrls restores direct media URLs in index order (1.4911ms)
+ظ£¤ witanime: decodeDownloadUrls tolerates malformed groups (0.6776ms)
+ظ£¤ witanime: decodeIframeResources strips param junk and appends yonaplay key (0.9335ms)
+ظ£¤ support: isSafePublicUrl rejects private/loopback/reserved hosts (1.1402ms)
+[anime4up] DISCOVERED_CANDIDATES watch=4 script=1 download=0
+[anime4up] PROVIDER_ADDED name=direct url=https://w1.anime4up.rest/v/2.mp4 type=DIRECT
+[anime4up] PROVIDER_ADDED name=direct url=https://w1.anime4up.rest/v/2.m3u8 type=DIRECT
+[anime4up] PROVIDER_ADDED name=direct url=https://cdn.anime4up.example/2.m3u8 type=DIRECT
+[anime4up] EMBEDS_TO_FOLLOW count=2
+[anime4up] PROVIDER_ATTEMPT name=╪│┘è╪▒┘╪▒ ┘à╪ذ╪د╪┤╪▒ url=https://embed.example/v2?id=99
+[anime4up] PROVIDER_ATTEMPT name=╪│┘è╪▒┘╪▒ ╪ح╪╢╪د┘┘è url=https://embed2.example/v?id=7
+ظ£û anime4up: full chain search -> episode -> sources (embeds dropped) (82.4356ms)
+ظ£¤ anime4up: nearest lower episode used when exact number missing (18.4777ms)
+ظ£¤ anime4up: search miss returns null (3.0714ms)
+[witanime] DISCOVERED_DOWNLOAD_GROUPS count=2
+[witanime] PROVIDER_ADDED name=download url=https://cdn.witanime.example/full/ep-2.mp4 type=DIRECT
+[witanime] PROVIDER_ADDED name=download url=https://cdn.witanime.example/full/ep-2.m3u8 type=DIRECT
+[witanime] DISCOVERED_WATCH_SERVERS count=2
+[witanime] PROVIDER_ATTEMPT name=╪د┘╪«╪د╪»┘à 1 url=https://embed.example/e/xyz
+[witanime] EXTRACTOR_RESULT name=╪د┘╪«╪د╪»┘à 1 status=FAILED reason=No matching extractor found
+[witanime] PROVIDER_ATTEMPT name=╪│┘è╪▒┘╪▒ FHD url=https://embed.example/e/abc
+[witanime] EXTRACTOR_RESULT name=╪│┘è╪▒┘╪▒ FHD status=FAILED reason=No matching extractor found
+ظ£û witanime: unknown embed hosts are returned as fallback without network call (8.5232ms)
+[witanime] DISCOVERED_DOWNLOAD_GROUPS count=2
+[witanime] PROVIDER_ADDED name=download url=https://cdn.witanime.example/full/ep-2.mp4 type=DIRECT
+[witanime] PROVIDER_ADDED name=download url=https://cdn.witanime.example/full/ep-2.m3u8 type=DIRECT
+[witanime] DISCOVERED_WATCH_SERVERS count=2
+[witanime] PROVIDER_ATTEMPT name=╪د┘╪«╪د╪»┘à 1 url=https://embed.example/e/xyz
+[witanime] PROVIDER_ATTEMPT name=╪│┘è╪▒┘╪▒ FHD url=https://embed.example/e/abc
+ظ£û witanime: watch-server embeds appended via injected resolveEmbed (9.8484ms)
+[witanime] DISCOVERED_DOWNLOAD_GROUPS count=2
+[witanime] PROVIDER_ADDED name=download url=https://cdn.witanime.example/full/ep-2.mp4 type=DIRECT
+[witanime] PROVIDER_ADDED name=download url=https://cdn.witanime.example/full/ep-2.m3u8 type=DIRECT
+[witanime] DISCOVERED_WATCH_SERVERS count=2
+[witanime] PROVIDER_ATTEMPT name=╪د┘╪«╪د╪»┘à 1 url=https://embed.example/e/xyz
+[witanime] PROVIDER_ATTEMPT name=╪│┘è╪▒┘╪▒ FHD url=https://embed.example/e/abc
+[witanime] EXTRACTOR_FAILED name=╪│┘è╪▒┘╪▒ FHD error=embed host is down
+[witanime] EXTRACTOR_RESULT name=╪│┘è╪▒┘╪▒ FHD status=FAILED reason=embed host is down
+ظ£û witanime: failing embed resolver never breaks the source list (4.6356ms)
+[anime4up] DISCOVERED_CANDIDATES watch=4 script=1 download=0
+[anime4up] PROVIDER_ADDED name=direct url=https://w1.anime4up.rest/v/2.mp4 type=DIRECT
+[anime4up] PROVIDER_ADDED name=direct url=https://w1.anime4up.rest/v/2.m3u8 type=DIRECT
+[anime4up] PROVIDER_ADDED name=direct url=https://cdn.anime4up.example/2.m3u8 type=DIRECT
+[anime4up] EMBEDS_TO_FOLLOW count=2
+[anime4up] PROVIDER_ATTEMPT name=╪│┘è╪▒┘╪▒ ┘à╪ذ╪د╪┤╪▒ url=https://embed.example/v2?id=99
+[anime4up] PROVIDER_ATTEMPT name=╪│┘è╪▒┘╪▒ ╪ح╪╢╪د┘┘è url=https://embed2.example/v?id=7
+[anime4up] EXTRACTOR_FAILED name=╪│┘è╪▒┘╪▒ ╪ح╪╢╪د┘┘è error=embed2 host is down
+ظ£û anime4up: embed rows resolved via injected resolveEmbed (20.7176ms)
+ظ£¤ registry: provider timeout is isolated and reported as PROVIDER_TIMEOUT (314.3409ms)
+ظ£¤ registry: challenge page classified UPSTREAM_BLOCKED, never retried (9.9568ms)
+[Resolver] DISCOVERY_START episodeId=watch/gogoanime/21/sub/one-piece-2 provider=gogoanime
+ظ£¤ registry: all providers failed collapses to ALL_PROVIDERS_FAILED category (6.0778ms)
+{"t":"2026-08-29T03:12:22.822Z","event":"anime.provider","provider":"miruro","requestType":"sources","episodeId":"watch/gogoanime/21/sub/one-piece-2","status":500,"latencyMs":4,"failureCategory":"PROVIDER_UNAVAILABLE","attemptedProviders":["gogoanime"]}
+[Resolver] PRIMARY_FAILED provider=gogoanime
+{"t":"2026-08-29T03:12:22.822Z","event":"anime.provider","provider":"miruro","requestType":"sources","animeId":"21","episodeId":"watch/gogoanime/21/sub/one-piece-2","status":null,"failureCategory":"EMPTY_SOURCES","attemptedProviders":["gogoanime"]}
+[Resolver] SCRAPER_DISCOVERY_START title="one piece" ep=2
+[anime4up] DISCOVERED_CANDIDATES watch=4 script=1 download=0
+[anime4up] PROVIDER_ADDED name=direct url=https://w1.anime4up.rest/v/2.mp4 type=DIRECT
+[anime4up] PROVIDER_ADDED name=direct url=https://w1.anime4up.rest/v/2.m3u8 type=DIRECT
+[anime4up] PROVIDER_ADDED name=direct url=https://cdn.anime4up.example/2.m3u8 type=DIRECT
+[anime4up] EMBEDS_TO_FOLLOW count=2
+[anime4up] PROVIDER_ATTEMPT name=╪│┘è╪▒┘╪▒ ┘à╪ذ╪د╪┤╪▒ url=https://embed.example/v2?id=99
+[anime4up] PROVIDER_ATTEMPT name=╪│┘è╪▒┘╪▒ ╪ح╪╢╪د┘┘è url=https://embed2.example/v?id=7
+[Resolver] DISCOVERY_SUCCESS source=SCRAPER provider=anime4up count=3
+{"t":"2026-08-29T03:12:22.862Z","event":"anime.provider","provider":"scraper","requestType":"sources","animeId":"21","episodeId":"watch/gogoanime/21/sub/one-piece-2","status":200,"failureCategory":"SCRAPER_FALLBACK_USED","fallbackProvider":"anime4up"}
+[Resolver] DISCOVERY_START episodeId=watch/gogoanime/21/sub/unknown-title-42 provider=gogoanime
+ظ£¤ resolver: scraper fallback serves sources when MiruroAPI is down (52.6617ms)
+{"t":"2026-08-29T03:12:22.876Z","event":"anime.provider","provider":"miruro","requestType":"sources","episodeId":"watch/gogoanime/21/sub/unknown-title-42","status":500,"latencyMs":6,"failureCategory":"PROVIDER_UNAVAILABLE","attemptedProviders":["gogoanime"]}
+[Resolver] PRIMARY_FAILED provider=gogoanime
+{"t":"2026-08-29T03:12:22.876Z","event":"anime.provider","provider":"miruro","requestType":"sources","animeId":"21","episodeId":"watch/gogoanime/21/sub/unknown-title-42","status":null,"failureCategory":"EMPTY_SOURCES","attemptedProviders":["gogoanime"]}
+[Resolver] SCRAPER_DISCOVERY_START title="unknown title" ep=42
+[Resolver] SCRAPER_FAILED providers=[witanime, anime4up]
+{"t":"2026-08-29T03:12:22.908Z","event":"anime.provider","provider":"scraper","requestType":"sources","animeId":"21","episodeId":"watch/gogoanime/21/sub/unknown-title-42","status":null,"failureCategory":"UPSTREAM_BLOCKED"}
+{"t":"2026-08-29T03:12:22.908Z","event":"anime.provider","provider":"scraper","requestType":"sources","animeId":"21","episodeId":"watch/gogoanime/21/sub/unknown-title-42","status":null,"failureCategory":"SOURCE_NOT_FOUND"}
+ظ£¤ resolver: all providers failed raises controlled STREAM_UNAVAILABLE (38.6199ms)
+ظ£¤ config: HOST defaults to 0.0.0.0 (Render-compatible bind) (123.0114ms)
+ظ£¤ config: HOST env override still wins when set explicitly (141.7417ms)
+[extractor:streamwish] extracted 2 candidates from https://streamwish.com/e/abc123
+[Resolver] PROVIDER_ATTEMPT provider=fake url=http://127.0.0.1:22476/e/abc
+ظû╢ streamwish extractor
+  ظ£¤ matches embed hosts and rejects non-streamwish URLs (2.0912ms)
+  ظ£û extracts jwplayer sources with labels and maps them to qualities (3.3946ms)
+ظ£û streamwish extractor (17.4623ms)
+ظû╢ extractor registry
+  ظ£¤ resolves hosts to the owning extractor (1.9432ms)
+  ظ£¤ returns {sources: [], extractionStatus: "FAILED"} for unknown hosts (2.0065ms)
+[Resolver] PROVIDER_HTTP_RESULT provider=fake status=200
+[extractor:streamwish] extracted 1 candidates from http://127.0.0.1:22476/e/abc
+[Resolver] CANDIDATES_FOUND provider=fake count=1
+[Resolver] SOURCE_REJECTED provider=fake url=https://cdn.example.com/hls/index.m3u8 reason=HEAD_FAILED
+[Resolver] EXTRACTOR_RESULT provider=fake direct=0 embed=1
+[Resolver] PROVIDER_ATTEMPT provider=fake url=http://127.0.0.1:22482/e/abc
+  ظ£û normalizes extracted candidates through the injected extractor (100.2358ms)
+[Resolver] PROVIDER_HTTP_FAILED provider=fake error=Provider returned an anti-bot challenge page
+  ظ£¤ omits the server when the embed answers a challenge page (12.4284ms)
+ظ£û extractor registry (117.3218ms)
+[relay] key request host=upstream.test path=/keys/aes.key
+[PROXY ROUTE] URL: http://upstream.test:22487/keys/aes.key | Status: 200 | Content-Type: application/octet-stream
+[relay] binary stream completed upstreamStatus=200 contentType=application/octet-stream bytes=16 elapsedMs=5
+ظ£¤ AES-128 key is relayed byte-for-byte as application/octet-stream (224.1749ms)
+[relay] segment request host=upstream.test path=/seg.bin range=none
+[PROXY ROUTE] URL: http://upstream.test:22487/seg.bin | Status: 200 | Content-Type: video/mp2t
+[relay] binary stream completed upstreamStatus=200 contentType=video/mp2t bytes=1000000 elapsedMs=8
+ظ£¤ segment without Range is relayed byte-for-byte with Content-Length (21.8585ms)
+[relay] segment request host=upstream.test path=/seg.bin range=bytes=0-99
+[PROXY ROUTE] URL: http://upstream.test:22487/seg.bin | Status: 206 | Content-Type: video/mp2t
+[relay] binary stream completed upstreamStatus=206 contentType=video/mp2t bytes=100 elapsedMs=1
+ظ£¤ Range bytes=0-99 yields 206 Partial Content with correct Content-Range (21.1206ms)
+[relay] segment request host=upstream.test path=/seg.bin range=bytes=-100
+[PROXY ROUTE] URL: http://upstream.test:22487/seg.bin | Status: 206 | Content-Type: video/mp2t
+[relay] binary stream completed upstreamStatus=206 contentType=video/mp2t bytes=100 elapsedMs=1
+ظ£¤ suffix Range bytes=-100 yields 206 with the trailing bytes (16.1607ms)
+[relay] segment request host=upstream.test path=/seg.bin range=bytes=999999999-
+ظ£¤ unsatisfiable Range is preserved as 416, never a successful media response (17.1552ms)
+ظ£¤ malformed Range headers are rejected with 416 (11.3407ms)
+[PROXY ROUTE] URL: http://upstream.test:22487/big.m3u8 | Status: 200 | Content-Type: application/vnd.apple.mpegurl
+ظ£¤ manifest is UTF-8 text, starts with #EXTM3U, and rewrites key/segment/variant URIs (19.3593ms)
+[PROXY ROUTE] URL: http://upstream.test:22487/huge.m3u8 | Status: 200 | Content-Type: application/vnd.apple.mpegurl
+ظ£¤ manifests above the configured size limit are rejected with 413 (13.8842ms)
+ظ£¤ SSRF: disallowed hosts and loopback addresses are blocked with 403 (28.9556ms)
+ظ£¤ missing or malformed src is rejected with 400 (15.7275ms)
+[relay] segment request host=upstream.test path=/error403 range=none
+ظ£¤ upstream 403 HTML page is never proxied; client receives 502 JSON (31.2679ms)
+[relay] key request host=upstream.test path=/error500
+ظ£¤ upstream 500 collapses to 502 Bad Gateway (15.5766ms)
+[relay] segment request host=upstream.test path=/missing.ts range=none
+ظ£¤ upstream 404 maps to 404, not a 200 with an error body (31.254ms)
+[relay] segment request host=upstream.test path=/html-seg.ts range=none
+ظ£¤ 200 text/html for a segment is aborted with 502 (no HTML to ExoPlayer) (16.2339ms)
+[relay] key request host=upstream.test path=/html.key
+ظ£¤ 200 text/html for an AES key is aborted with 502 (31.7088ms)
+[PROXY ROUTE] URL: http://upstream.test:22487/html.m3u8 | Status: 200 | Content-Type: text/html
+ظ£¤ 200 text/html for a manifest is aborted with 502 (15.8717ms)
+[relay] segment request host=upstream.test path=/challenge.ts range=none
+ظ£¤ anti-bot challenge headers are detected and the body is never read (15.4147ms)
+[relay] key request host=upstream.test path=/nokey.key
+[PROXY ROUTE] URL: http://upstream.test:22487/nokey.key | Status: 200 | Content-Type: none
+[relay] binary stream completed upstreamStatus=200 contentType=application/octet-stream bytes=16 elapsedMs=0
+ظ£¤ key without an upstream content-type is forced to application/octet-stream, byte-exact (32.2317ms)
+[relay] segment request host=upstream.test path=/slow.bin range=none
+[PROXY ROUTE] URL: http://upstream.test:22487/slow.bin | Status: 200 | Content-Type: application/octet-stream
+[relay] binary stream aborted by client upstreamStatus=200 elapsedMs=6
+ظ£¤ client cancellation aborts the upstream request (280.4079ms)
+[PROXY ROUTE] URL: http://upstream.test:22487/echo.m3u8 | Status: 200 | Content-Type: application/vnd.apple.mpegurl
+ظ£¤ JSON src forwards Referer/Origin to the manifest upstream (18.0978ms)
+[PROXY ROUTE] URL: http://upstream.test:22487/echo.m3u8 | Status: 200 | Content-Type: application/vnd.apple.mpegurl
+ظ£¤ rewritten child URIs carry the parent playback headers (15.3653ms)
+[PROXY ROUTE] URL: http://upstream.test:22487/ref.m3u8 | Status: 200 | Content-Type: application/vnd.apple.mpegurl
+[relay] segment request host=upstream.test path=/refseg.ts range=none
+[PROXY ROUTE] URL: http://upstream.test:22487/refseg.ts | Status: 200 | Content-Type: video/mp2t
+[relay] binary stream completed upstreamStatus=200 contentType=video/mp2t bytes=100 elapsedMs=0
+ظ£¤ hotlink-protected upstream serves media only when the src carries Referer/Origin (62.5074ms)
+[relay] segment request host=upstream.test path=/refseg.ts range=none
+[PROXY ROUTE] URL: http://upstream.test:22487/refseg.ts | Status: 200 | Content-Type: video/mp2t
+[relay] binary stream completed upstreamStatus=200 contentType=video/mp2t bytes=100 elapsedMs=0
+[relay] key request host=upstream.test path=/keys/aes.key
+[PROXY ROUTE] URL: http://upstream.test:22487/keys/aes.key | Status: 200 | Content-Type: application/octet-stream
+[relay] binary stream completed upstreamStatus=200 contentType=application/octet-stream bytes=16 elapsedMs=0
+ظ£¤ JSON src is honored on /segment and /key routes (60.1171ms)
+ظ£¤ src payload with a disallowed playback header (Cookie) is rejected with 400 (4.4812ms)
+ظ£¤ src payload with a non-URL playback header value is rejected with 400 (1.2028ms)
+ظ£¤ malformed JSON src payload is rejected with 400 (9.4075ms)
+ظ£¤ JSON src still enforces the upstream allowlist with 403 (15.0837ms)
+ظ£¤ allowlist matches only the configured exact hosts (1.7575ms)
+ظ£¤ forbidden addresses are rejected regardless of allowlist (2.3435ms)
+ظ£¤ public non-allowlisted hosts are not forbidden addresses but are denied by the allowlist (0.4973ms)
+ظ£¤ validateUpstreamUrl rejects non-http, credentials, and disallowed hosts (1.2756ms)
+ظ£¤ validateUpstreamUrl accepts an allowed host and preserves query strings (0.3816ms)
+ظ£¤ base64url src roundtrip preserves the exact upstream URL (0.4066ms)
+ظ£¤ src decoding rejects oversized and malformed references (1.0175ms)
+ظ£¤ rewritten manifests begin with #EXTM3U and never contain object/buffer artifacts (0.7706ms)
+ظ£¤ EXT-X-KEY URIs are rewritten to the relay /key route with encoded sources (0.7916ms)
+ظ£¤ root-relative, relative, and query URIs are rewritten with the manifest URL as base (0.5877ms)
+ظ£¤ EXT-X-MEDIA and I-FRAME-STREAM-INF URIs route to /master.m3u8 (0.4178ms)
+ظ£¤ buildRelayPath routes by resource kind (0.2698ms)
+ظ£¤ providerHeadersFor returns the exact-host policy (161.7689ms)
+ظ£¤ providerHeadersFor matches subdomains against the longest registered parent (0.2485ms)
+ظ£¤ providerHeadersFor returns null for hosts without a policy (0.2067ms)
+[relay] segment request host=upstream.test path=/a.ts range=none
+[PROXY ROUTE] URL: http://upstream.test:22729/a.ts | Status: 200 | Content-Type: text/plain
+[relay] binary stream completed upstreamStatus=200 contentType=text/plain bytes=chunked elapsedMs=1
+ظ£¤ policy User-Agent/Referer/Origin are applied to the upstream request (50.18ms)
+[relay] segment request host=upstream.test path=/b.ts range=none
+[PROXY ROUTE] URL: http://upstream.test:22729/b.ts | Status: 200 | Content-Type: text/plain
+[relay] binary stream completed upstreamStatus=200 contentType=text/plain bytes=chunked elapsedMs=1
+ظ£¤ policy headers override client-declared playback headers (11.9833ms)
+[relay] segment request host=other.test path=/c.ts range=none
+[PROXY ROUTE] URL: http://other.test:22729/c.ts | Status: 200 | Content-Type: text/plain
+[relay] binary stream completed upstreamStatus=200 contentType=text/plain bytes=chunked elapsedMs=1
+ظ£¤ a host without a policy keeps the honest default headers (6.3443ms)
+[relay] segment request host=upstream.test path=/flaky range=none
+[PROXY ROUTE] URL: http://upstream.test:22730/flaky | Status: 200 | Content-Type: text/plain
+[relay] binary stream completed upstreamStatus=200 contentType=text/plain bytes=chunked elapsedMs=2
+ظ£¤ 503 twice then 200 succeeds; upstream saw exactly 3 attempts (308.5042ms)
+[relay] segment request host=upstream.test path=/once429 range=none
+[PROXY ROUTE] URL: http://upstream.test:22730/once429 | Status: 200 | Content-Type: text/plain
+[relay] binary stream completed upstreamStatus=200 contentType=text/plain bytes=chunked elapsedMs=0
+ظ£¤ 429 once then 200 succeeds with 2 attempts (48.2938ms)
+[relay] segment request host=upstream.test path=/always500 range=none
+ظ£¤ persistent 500 collapses to 502 after exactly the configured budget (3 attempts) (109.3588ms)
+[relay] segment request host=upstream.test path=/forbidden range=none
+ظ£¤ 403 is NEVER retried (single upstream attempt) (30.4409ms)
+[relay] segment request host=upstream.test path=/nobody range=none
+ظ£¤ connection-refused network errors are retried and collapse to 502 (79.9761ms)
+[relay] segment request host=upstream.test path=/hang range=none
+ظ£¤ per-attempt timeout is retried and finally surfaces as 504 (233.861ms)
+[relay] segment request host=upstream.test path=/redirect range=none
+[PROXY ROUTE] URL: http://upstream.test:22730/ok.ts | Status: 200 | Content-Type: text/plain
+[relay] binary stream completed upstreamStatus=200 contentType=text/plain bytes=chunked elapsedMs=0
+ظ£¤ redirect hops are followed and each hop is DNS-validated + pinned (7.1844ms)
+ظ£¤ selectAllowedAddresses keeps only public addresses from a mixed set (164.2114ms)
+ظ£¤ selectAllowedAddresses passes through public-only resolutions (0.3383ms)
+ظ£¤ selectAllowedAddresses drops IPv6 addresses (consistent with the URL rules) (0.2065ms)
+ظ£¤ selectAllowedAddresses throws 403 when every address is forbidden (0.6979ms)
+[relay] segment request host=upstream.test path=/x.m3u8 range=none
+ظ£¤ allowlisted host resolving to a private address is refused with 403 (43.9744ms)
+ظ£¤ SSRF refusals are never retried (single resolution attempt) (5.1403ms)
+ظ╣ tests 137
+ظ╣ suites 2
+ظ╣ pass 129
+ظ╣ fail 8
+ظ╣ cancelled 0
+ظ╣ skipped 0
+ظ╣ todo 0
+ظ╣ duration_ms 30376.7164
+
+ظ£û failing tests:
+
+test at test\anime.normalize.test.js:81:1
+ظ£û normalizeStreamSource: HLS with headers and subtitles (2.4137ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    {
+  +   extractionStatus: 'DIRECT',
+      headers: {
+        Referer: 'https://source.example.com/'
+      },
+      isEmbed: false,
+      isHls: true,
+  
+      at TestContext.<anonymous> (file:///C:/Users/houar/OneDrive/Desktop/anime-halal/backend/test/anime.normalize.test.js:92:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { url: 'https://cdn.example.com/master.m3u8?tok=1', name: 'kiwi', type: 'hls', quality: '1080p', mimeType: 'application/vnd.apple.mpegurl', isHls: true, isEmbed: false, headers: { Referer: 'https://source.example.com/' }, subtitles: [ [Object] ], provider: 'kiwi', language: 'sub', extractionStatus: 'DIRECT' },
+    expected: { url: 'https://cdn.example.com/master.m3u8?tok=1', name: 'kiwi', type: 'hls', quality: '1080p', mimeType: 'application/vnd.apple.mpegurl', isHls: true, isEmbed: false, headers: { Referer: 'https://source.example.com/' }, subtitles: [ [Object] ], provider: 'kiwi', language: 'sub' },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at test\anime.scraper.test.js:292:1
+ظ£û anime4up: full chain search -> episode -> sources (embeds dropped) (82.4356ms)
+  AssertionError [ERR_ASSERTION]: unresolved embed pages should be included as fallback
+      at TestContext.<anonymous> (file:///C:/Users/houar/OneDrive/Desktop/anime-halal/backend/test/anime.scraper.test.js:304:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test\anime.scraper.test.js:370:1
+ظ£û witanime: unknown embed hosts are returned as fallback without network call (8.5232ms)
+  AssertionError [ERR_ASSERTION]: 2 direct + 2 fallback embed sources
+  
+  2 !== 4
+  
+      at TestContext.<anonymous> (file:///C:/Users/houar/OneDrive/Desktop/anime-halal/backend/test/anime.scraper.test.js:375:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 4,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test\anime.scraper.test.js:381:1
+ظ£û witanime: watch-server embeds appended via injected resolveEmbed (9.8484ms)
+  AssertionError [ERR_ASSERTION]: 2 direct + 2 embed sources
+  
+  2 !== 4
+  
+      at TestContext.<anonymous> (file:///C:/Users/houar/OneDrive/Desktop/anime-halal/backend/test/anime.scraper.test.js:395:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 4,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test\anime.scraper.test.js:404:1
+ظ£û witanime: failing embed resolver never breaks the source list (4.6356ms)
+  AssertionError [ERR_ASSERTION]: direct sources survive a broken embed, which returns as fallback
+  
+  2 !== 4
+  
+      at TestContext.<anonymous> (file:///C:/Users/houar/OneDrive/Desktop/anime-halal/backend/test/anime.scraper.test.js:423:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 4,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test\anime.scraper.test.js:427:1
+ظ£û anime4up: embed rows resolved via injected resolveEmbed (20.7176ms)
+  AssertionError [ERR_ASSERTION]: embed row resolved into a streamwish source
+      at TestContext.<anonymous> (file:///C:/Users/houar/OneDrive/Desktop/anime-halal/backend/test/anime.scraper.test.js:453:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test\extractors.test.js:33:3
+ظ£û extracts jwplayer sources with labels and maps them to qualities (3.3946ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  '1080p' !== 'FHD'
+  
+      at TestContext.<anonymous> (file:///C:/Users/houar/OneDrive/Desktop/anime-halal/backend/test/extractors.test.js:46:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1325:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:911:18)
+      at Test.postRun (node:internal/test_runner/test:1465:19)
+      at Test.run (node:internal/test_runner/test:1390:12)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1794:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '1080p',
+    expected: 'FHD',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test\extractors.test.js:67:3
+ظ£û normalizes extracted candidates through the injected extractor (100.2358ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///C:/Users/houar/OneDrive/Desktop/anime-halal/backend/test/extractors.test.js:87:14)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

@@ -8,6 +8,7 @@ import { AnimeApiError } from './anime/errors.js';
 
 const app = express();
 app.disable('x-powered-by');
+app.use(express.json());
 
 app.get('/healthz', (_req, res) => {
   res.json({
@@ -19,8 +20,8 @@ app.get('/healthz', (_req, res) => {
   });
 });
 
-app.use('/', hlsRouter);
 app.use('/api/anime', animeRouter);
+app.use('/', hlsRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not Found' });
@@ -31,7 +32,12 @@ app.use((err, _req, res, next) => {
     res.status(err.status).json(err.toResponseBody());
     return;
   }
-  console.error('[relay] unhandled error:', err?.message);
+  if (err.name === 'UpstreamError') {
+    console.error(`[relay] Upstream error [${err.code}]: ${err.message}`);
+    res.status(err.status).json({ error: err.message });
+    return;
+  }
+  console.error('[relay] unhandled error:', err?.message, err?.stack);
   if (res.headersSent) {
     next(err);
     return;

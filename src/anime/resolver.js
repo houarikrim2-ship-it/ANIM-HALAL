@@ -21,6 +21,7 @@ import {
   ANIME_PROVIDER_PRIORITY,
   ANIME_SCRAPER_ENABLED,
   ANIME_SEARCH_CACHE_TTL_MS,
+  ANIME_CATALOG_REFRESH_INTERVAL_MS,
 } from './config.js';
 import {
   AnimeApiError,
@@ -31,9 +32,13 @@ import { logProviderEvent } from './logger.js';
 import * as miruro from './providers/miruroProvider.js';
 import * as jikan from './providers/jikanProvider.js';
 import * as scraperRegistry from './providers/scraperRegistry.js';
-import { parseWatchEpisodeId } from './normalize.js';
+import { parseWatchEpisodeId, finalizeSources } from './normalize.js';
 
-const ALLOWED_IDS = /^(?:\d+|jikan_\d+)$/;
+const ALLOWED_IDS = /^(?:\d+|jikan_\d+|anilist:\d+)$/i;
+
+function normalizeId(id) {
+  return String(id ?? '').trim().replace(/^anilist:/i, '');
+}
 
 function isNumericId(id) {
   return /^\d+$/.test(id);
@@ -62,6 +67,77 @@ function searchProviders() {
 }
 
 const ALLOWED_CATALOG_KINDS = new Set(['trending', 'popular', 'recent', 'spotlight']);
+
+/**
+ * Global catalog state. [revision] increments whenever any catalog row
+ * data content changes across any provider.
+ */
+let catalogRevision = 1000;
+let lastCatalogRefreshAt = 0;
+let isRefreshing = false;
+
+/** Returns the current catalog metadata state. */
+export function getCatalogState() {
+  return {
+    revision: catalogRevision,
+    lastUpdated: new Date(lastCatalogRefreshAt).toISOString(),
+    refreshIntervalMs: ANIME_CATALOG_REFRESH_INTERVAL_MS,
+    isRefreshing
+  };
+}
+
+async function refreshCatalogTask() {
+  if (isRefreshing) return;
+  isRefreshing = true;
+  console.log('[Resolver] CATALOG_REFRESH_START');
+
+  let changed = false;
+  for (const kind of ALLOWED_CATALOG_KINDS) {
+    try {
+      const cacheKey = `catalog:${kind}`;
+      const oldRows = metadataCache.get(cacheKey) || [];
+
+      let newRows = [];
+      try {
+          newRows = await miruro.catalog(kind);
+      } catch (miruroErr) {
+          console.warn(`[Resolver] MIRURO_CATALOG_FAILED kind=${kind}, falling back to scrapers...`);
+          // Fallback to scrapers for trending/popular
+          const scraperResult = await scraperRegistry.resolveCatalog(kind);
+          newRows = scraperResult.results;
+      }
+
+      // Deep comparison of IDs to see if the list content changed
+      const oldIds = oldRows.map(r => r.id).join(',');
+      const newIds = newRows.map(r => r.id).join(',');
+
+      if (newIds !== oldIds && newRows.length > 0) {
+        console.log(`[Resolver] CATALOG_REVISION_CHANGED kind=${kind} count=${newRows.length}`);
+        metadataCache.set(cacheKey, newRows, ANIME_SEARCH_CACHE_TTL_MS * 10); // Keep longer
+        changed = true;
+      }
+    } catch (err) {
+      console.warn(`[Resolver] CATALOG_REFRESH_FAILED kind=${kind} error=${err.message}`);
+    }
+  }
+
+  if (changed) {
+    catalogRevision++;
+    console.log(`[Resolver] CATALOG_REFRESH_FINISHED revision=${catalogRevision}`);
+  } else {
+    console.log('[Resolver] CATALOG_REFRESH_NO_CHANGES');
+  }
+
+  lastCatalogRefreshAt = Date.now();
+  isRefreshing = false;
+}
+
+// Start the background refresh loop if enabled
+if (ANIME_CATALOG_REFRESH_INTERVAL_MS > 0 && typeof process !== 'undefined') {
+    setInterval(refreshCatalogTask, ANIME_CATALOG_REFRESH_INTERVAL_MS);
+    // Initial immediate refresh
+    setTimeout(refreshCatalogTask, 5000);
+}
 
 /**
  * Home-screen catalog rows. Miruro owns all catalog kinds; a failure returns
@@ -164,7 +240,7 @@ export async function searchAnime(queryText) {
  * fallback never returns a different anime.
  */
 export async function animeInfo(id) {
-  const raw = String(id ?? '').trim();
+  const raw = normalizeId(id);
   if (!ALLOWED_IDS.test(raw)) {
     throw new AnimeApiError(ERROR_CODES.INVALID_REQUEST, 'Unsupported anime id format');
   }
@@ -215,7 +291,7 @@ export async function animeInfo(id) {
  * raise [EPISODE_NOT_FOUND] / [PROVIDER_UNAVAILABLE].
  */
 export async function animeEpisodes(id) {
-  const raw = String(id ?? '').trim();
+  const raw = normalizeId(id);
   if (!ALLOWED_IDS.test(raw)) {
     throw new AnimeApiError(ERROR_CODES.INVALID_REQUEST, 'Unsupported anime id format');
   }
@@ -284,11 +360,15 @@ export async function episodeSources(episodeId) {
 
   const { provider, anilistId, category, slug } = parsed;
 
+  console.log(`[Resolver] DISCOVERY_START episodeId=${raw} provider=${provider}`);
+
   // 1) Requested provider first.
   const primary = await attemptWatch(provider, raw);
   if (primary.sources.length > 0) {
-    return { provider: 'miruro', sources: primary.sources };
+    console.log(`[Resolver] DISCOVERY_SUCCESS source=PRIMARY provider=${provider} count=${primary.sources.length}`);
+    return { provider: 'miruro', sources: finalizeSources(primary.sources) };
   }
+  console.log(`[Resolver] PRIMARY_FAILED provider=${provider}`);
   log(miruro.providerInfo.name, 'sources', {
     animeId: anilistId,
     episodeId: raw,
@@ -330,6 +410,7 @@ export async function episodeSources(episodeId) {
       attempted.push(altParsed.provider);
       const alt = await attemptWatch(altParsed.provider, ep.id);
       if (alt.sources.length > 0) {
+        console.log(`[Resolver] DISCOVERY_SUCCESS source=FALLBACK provider=${altParsed.provider} count=${alt.sources.length}`);
         log(miruro.providerInfo.name, 'sources', {
           animeId: anilistId,
           episodeId: raw,
@@ -338,8 +419,9 @@ export async function episodeSources(episodeId) {
           fallbackProvider: altParsed.provider,
           attemptedProviders: attempted,
         });
-        return { provider: 'miruro', sources: alt.sources, fallbackProvider: altParsed.provider };
+        return { provider: 'miruro', sources: finalizeSources(alt.sources), fallbackProvider: altParsed.provider };
       }
+      console.log(`[Resolver] FALLBACK_FAILED provider=${altParsed.provider}`);
       log(miruro.providerInfo.name, 'sources', {
         animeId: anilistId,
         episodeId: raw,
@@ -356,12 +438,14 @@ export async function episodeSources(episodeId) {
   if (scraperFallbackUsable(targetNumber)) {
     const title = scraperSearchTitle(anilistId, slug);
     if (title !== null) {
+      console.log(`[Resolver] SCRAPER_DISCOVERY_START title="${title}" ep=${targetNumber}`);
       const scraped = await scraperRegistry.resolveEpisodeSources({
         title,
         episodeNumber: Number(targetNumber),
         language: category,
       });
       if (scraped.sources.length > 0) {
+        console.log(`[Resolver] DISCOVERY_SUCCESS source=SCRAPER provider=${scraped.provider} count=${scraped.sources.length}`);
         log('scraper', 'sources', {
           animeId: anilistId,
           episodeId: raw,
@@ -371,10 +455,11 @@ export async function episodeSources(episodeId) {
         });
         return {
           provider: 'scraper',
-          sources: scraped.sources,
+          sources: finalizeSources(scraped.sources),
           fallbackProvider: scraped.provider,
         };
       }
+      console.log(`[Resolver] SCRAPER_FAILED providers=[${scraped.failures?.map(f => f.provider).join(', ')}]`);
       for (const failure of scraped.failures ?? []) {
         log('scraper', 'sources', {
           animeId: anilistId,
@@ -393,6 +478,103 @@ export async function episodeSources(episodeId) {
     ERROR_CODES.STREAM_UNAVAILABLE,
     'No playable source is currently available for this episode',
     { provider: miruro.providerInfo.name, failureCategory: 'ALL_PROVIDERS_FAILED' }
+  );
+}
+
+/**
+ * On-demand live extraction for an episode.
+ *
+ * Scans the third-party scraper providers in real-time. Unlike [episodeSources],
+ * this NEVER checks MiruroAPI or Firestore: it is a pure, stateless extraction
+ * path for the "free-as-possible" production tier.
+ */
+export async function extractSources({ anilistId, title: providedTitle, slug, episodeNumber, category = 'sub' }) {
+  const requestId = Math.random().toString(36).substring(7);
+  console.log(`[Resolver][${requestId}] LIVE_EXTRACTION_START anilistId=${anilistId} ep=${episodeNumber}`);
+
+  if (!anilistId || !episodeNumber) {
+    throw new AnimeApiError(ERROR_CODES.INVALID_REQUEST, 'anilistId and episodeNumber are required');
+  }
+  if (!ANIME_SCRAPER_ENABLED) {
+    throw new AnimeApiError(ERROR_CODES.PROVIDER_UNAVAILABLE, 'Live extraction is disabled');
+  }
+
+  const normalizedId = normalizeId(anilistId);
+  const targetNumber = Number(episodeNumber);
+
+  let alternateTitles = [];
+  try {
+    const info = await animeInfo(normalizedId);
+    if (info && info.title) {
+      if (typeof info.title === 'object') {
+        alternateTitles = [info.title.english, info.title.romaji, info.title.native].filter(Boolean);
+      } else if (typeof info.title === 'string') {
+        alternateTitles = [info.title];
+      }
+      if (info.englishTitle) alternateTitles.push(info.englishTitle);
+      if (info.name) alternateTitles.push(info.name);
+    }
+    console.log(`[Resolver][${requestId}] TITLE_ENRICHMENT count=${alternateTitles.length}`);
+  } catch (err) {
+    console.warn(`[Resolver][${requestId}] TITLE_ENRICHMENT_FAILED: ${err.message}`);
+  }
+
+  const titlesToTry = [...new Set([providedTitle, ...alternateTitles].filter(Boolean))];
+  if (titlesToTry.length === 0 && slug) {
+    const slugTitle = scraperSearchTitle(normalizedId, slug);
+    if (slugTitle) titlesToTry.push(slugTitle);
+  }
+
+  if (titlesToTry.length === 0) {
+    throw new AnimeApiError(ERROR_CODES.INVALID_REQUEST, 'Could not resolve anime title for extraction');
+  }
+
+  const startedAt = Date.now();
+  let finalSources = [];
+  let winningProvider = null;
+
+  for (const title of titlesToTry) {
+    console.log(`[Resolver][${requestId}] SCRAPER_TRY title="${title}"`);
+    const scraped = await scraperRegistry.resolveEpisodeSources({
+      title,
+      episodeNumber: targetNumber,
+      language: category,
+      requestId,
+    });
+
+    if (scraped.sources.length > 0) {
+      finalSources = scraped.sources;
+      winningProvider = scraped.provider;
+      console.log(`[Resolver][${requestId}] SCRAPER_HIT provider=${scraped.provider} direct=${scraped.sources.filter(s => !s.isEmbed).length} embed=${scraped.sources.filter(s => s.isEmbed).length}`);
+      break;
+    }
+  }
+
+  const latencyMs = Date.now() - startedAt;
+
+  if (finalSources.length > 0) {
+    const directCount = finalSources.filter(s => !s.isEmbed).length;
+    console.log(`[Resolver][${requestId}] LIVE_EXTRACTION_SUCCESS direct=${directCount} embed=${finalSources.length - directCount}`);
+    log('scraper', 'extract', { animeId: normalizedId, status: 200, latencyMs });
+    return {
+      provider: 'scraper',
+      sources: finalizeSources(finalSources),
+      fallbackProvider: winningProvider,
+    };
+  }
+
+  console.error(`[Resolver][${requestId}] LIVE_EXTRACTION_FAILED reason=EMPTY_RESULTS`);
+  log('scraper', 'extract', {
+    animeId: normalizedId,
+    status: 404,
+    latencyMs,
+    failureCategory: 'EXTRACTION_EMPTY',
+  });
+
+  throw new AnimeApiError(
+    ERROR_CODES.STREAM_UNAVAILABLE,
+    `No playable source found for ${titlesToTry.join(' or ')}`,
+    { failureCategory: 'EXTRACTION_EMPTY', retryable: true }
   );
 }
 
