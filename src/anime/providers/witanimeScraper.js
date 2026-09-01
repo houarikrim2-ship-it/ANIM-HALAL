@@ -264,7 +264,7 @@ export async function episodePageUrl(animePageUrl, number, options = {}) {
       timeoutMs: options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS,
     });
     const episodes = decodeEpisodeGrid(text);
-    if (episodes.length === 0) return [];
+    if (episodes.length === 0) return null;
     const target = Number(number);
     const exact = episodes.find((entry) => entry.number === target);
     const entry = exact ?? episodes

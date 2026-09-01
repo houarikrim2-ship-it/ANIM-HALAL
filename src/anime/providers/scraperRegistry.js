@@ -160,14 +160,18 @@ export async function resolveEpisodeSources({ title, episodeNumber, language = '
       }
   });
 
-  if (collected.length > 0) {
-    return {
-      sources: collected,
-      provider: firstProvider,
-      failures: failures.length > 0 ? failures : null,
-    };
+  if (collected.length === 0) {
+    throw new AnimeApiError(ERROR_CODES.STREAM_UNAVAILABLE, 'No sources found across providers', {
+        failureCategory: 'SOURCE_NOT_FOUND',
+        failures
+    });
   }
-  return { sources: [], provider: null, failures };
+
+  return {
+    sources: collected,
+    provider: firstProvider,
+    failures: failures.length > 0 ? failures : null,
+  };
 }
 
 /** Short, structured failure message for logging (never raw internals). */

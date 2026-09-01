@@ -519,11 +519,8 @@ export async function extractSources({ anilistId, title: providedTitle, slug, ep
     console.warn(`[Resolver][${requestId}] TITLE_ENRICHMENT_FAILED: ${err.message}`);
   }
 
-  const titlesToTry = [...new Set([providedTitle, ...alternateTitles].filter(Boolean))];
-  if (titlesToTry.length === 0 && slug) {
-    const slugTitle = scraperSearchTitle(normalizedId, slug);
-    if (slugTitle) titlesToTry.push(slugTitle);
-  }
+  const slugTitle = slug ? scraperSearchTitle(normalizedId, slug) : null;
+  const titlesToTry = [...new Set([providedTitle, slugTitle, ...alternateTitles].filter(Boolean))];
 
   if (titlesToTry.length === 0) {
     throw new AnimeApiError(ERROR_CODES.INVALID_REQUEST, 'Could not resolve anime title for extraction');
