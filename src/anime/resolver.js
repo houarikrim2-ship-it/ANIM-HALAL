@@ -575,7 +575,11 @@ export async function extractSources({ anilistId, title: providedTitle, slug, ep
   throw new AnimeApiError(
     ERROR_CODES.STREAM_UNAVAILABLE,
     `No playable source found for ${titlesToTry.join(' or ')}`,
-    { failureCategory: 'EXTRACTION_EMPTY', retryable: true }
+    {
+        failureCategory: 'EXTRACTION_EMPTY',
+        retryable: true,
+        failures: titlesToTry.map(t => ({ title: t, status: 'tried_but_empty' }))
+    }
   );
 }
 
