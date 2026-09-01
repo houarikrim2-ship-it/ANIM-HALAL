@@ -174,7 +174,7 @@ export async function fetchHtml(url, options = {}) {
   }
 
   if (response.status >= 500) {
-    await response.body?.cancel();
+    try { await response.body?.cancel(); } catch { /* ignore */ }
     throw new AnimeApiError(ERROR_CODES.PROVIDER_UNAVAILABLE, `Provider HTTP ${response.status}`, {
       provider,
       status: response.status,
@@ -182,7 +182,7 @@ export async function fetchHtml(url, options = {}) {
     });
   }
   if (response.status >= 400) {
-    await response.body?.cancel();
+    try { await response.body?.cancel(); } catch { /* ignore */ }
     throw new AnimeApiError(ERROR_CODES.UPSTREAM_BLOCKED, `Provider HTTP ${response.status}`, {
       provider,
       status: response.status,
@@ -197,7 +197,7 @@ export async function fetchHtml(url, options = {}) {
 
   const contentType = response.headers.get('content-type') ?? '';
   if (!allowedContentTypes.some((type) => contentType.includes(type))) {
-    await response.body?.cancel();
+    try { await response.body?.cancel(); } catch { /* ignore */ }
     throw new AnimeApiError(ERROR_CODES.UPSTREAM_BLOCKED, 'Provider returned a non-HTML response', {
       provider,
       status: response.status,
@@ -957,6 +957,7 @@ export function unpackJs(code) {
 
   let p = match[2];
   let a = parseInt(match[3], 10);
+  if (a <= 1) return code; // Guard against infinite recursion if base is 1 or less
   let c = parseInt(match[4], 10);
   let k = match[6];
   const keywords = k.split('|');

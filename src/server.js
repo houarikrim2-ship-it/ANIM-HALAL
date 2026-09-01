@@ -37,12 +37,12 @@ app.use((err, _req, res, next) => {
     res.status(err.status).json({ error: err.message });
     return;
   }
-  console.error('[relay] unhandled error:', err?.message, err?.stack);
+  console.error('[relay] unhandled error:', err?.name, err?.message, err?.stack);
   if (res.headersSent) {
     next(err);
     return;
   }
-  res.status(500).json({ error: 'Internal server error' });
+  res.status(500).json({ error: err?.message || 'Internal server error', name: err?.name });
 });
 
 const server = createServer(app);

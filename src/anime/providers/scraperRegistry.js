@@ -154,7 +154,7 @@ export async function resolveEpisodeSources({ title, episodeNumber, language = '
               failures.push({ provider: res.value.provider, ...res.value.failure });
           }
       } else {
-          failures.push({ provider: 'unknown', category: 'EXTRACTION_CRASH', message: res.reason?.message });
+          failures.push({ provider: 'unknown', category: 'EXTRACTION_CRASH', message: res.reason?.message ?? String(res.reason ?? 'Unknown crash') });
       }
   });
 

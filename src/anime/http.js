@@ -128,9 +128,10 @@ export async function fetchJson(baseUrl, path, options = {}) {
         provider,
         status: response.status,
       });
-      await response.body?.cancel();
+      try { await response.body?.cancel(); } catch { /* ignore */ }
       continue;
     }
+    try { await response.body?.cancel(); } catch { /* ignore */ }
     throw new AnimeApiError(classification.code, `Provider HTTP ${response.status}`, {
       provider,
       status: response.status,

@@ -133,7 +133,7 @@ async function refreshCatalogTask() {
 }
 
 // Start the background refresh loop if enabled
-if (ANIME_CATALOG_REFRESH_INTERVAL_MS > 0 && typeof process !== 'undefined') {
+if (ANIME_CATALOG_REFRESH_INTERVAL_MS > 0 && typeof process !== 'undefined' && process.env.NODE_ENV !== 'test') {
     setInterval(refreshCatalogTask, ANIME_CATALOG_REFRESH_INTERVAL_MS);
     // Initial immediate refresh
     setTimeout(refreshCatalogTask, 5000);

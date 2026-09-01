@@ -142,8 +142,14 @@ router.post('/sources/extract', async (req, res, next) => {
     const { anilistId, title, slug, episodeNumber, category } = req.body;
     console.log(`[Resolver] POST /sources/extract anilistId=${anilistId}, title=${title}, slug=${slug}, ep=${episodeNumber}`);
     const result = await extractSources({ anilistId, title, slug, episodeNumber, category });
-    console.log(`[Resolver] Success: found ${result.sources.length} sources`);
-    sendOk(res, addProxyUrls(req, result), { cacheControl: 'no-store' });
+    console.log(`[Resolver] Success: found ${result?.sources?.length ?? 0} sources`);
+    let finalResult = result;
+    try {
+        finalResult = addProxyUrls(req, result);
+    } catch (e) {
+        console.error(`[Resolver] addProxyUrls failed: ${e.message}`);
+    }
+    sendOk(res, finalResult, { cacheControl: 'no-store' });
   } catch (err) {
     console.error(`[Resolver] Extraction failed: ${err.message}`);
     next(err);
