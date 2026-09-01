@@ -35,10 +35,11 @@ function addProxyUrls(req, data) {
   const sources = data.sources.map((s) => {
     if (s.isHls && s.url) {
       try {
+        console.log(`[relay] building proxyUrl for ${s.url.substring(0, 50)}...`);
         const relayPath = buildRelayPath('master', new URL(s.url), s.headers);
         return { ...s, proxyUrl: `${baseUrl}${relayPath}` };
       } catch (err) {
-        console.error('[relay] failed to build proxyUrl:', err.message);
+        console.error('[relay] failed to build proxyUrl:', err.name, err.message);
         return s;
       }
     }
