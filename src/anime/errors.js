@@ -42,13 +42,14 @@ export class AnimeApiError extends Error {
     this.provider = options.provider ?? null;
     this.failureCategory = options.failureCategory ?? code;
     this.retryable = options.retryable ?? false;
+    this.failures = options.failures ?? null;
     if (options.cause !== undefined) {
       this.cause = options.cause;
     }
   }
 
   toResponseBody() {
-    return {
+    const res = {
       success: false,
       retryable: this.retryable,
       error: {
@@ -56,6 +57,8 @@ export class AnimeApiError extends Error {
         message: this.message,
       },
     };
+    if (this.failures) res.error.failures = this.failures;
+    return res;
   }
 }
 
