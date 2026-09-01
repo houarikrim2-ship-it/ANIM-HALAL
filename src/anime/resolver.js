@@ -535,18 +535,22 @@ export async function extractSources({ anilistId, title: providedTitle, slug, ep
 
   for (const title of titlesToTry) {
     console.log(`[Resolver][${requestId}] SCRAPER_TRY title="${title}"`);
-    const scraped = await scraperRegistry.resolveEpisodeSources({
-      title,
-      episodeNumber: targetNumber,
-      language: category,
-      requestId,
-    });
+    try {
+        const scraped = await scraperRegistry.resolveEpisodeSources({
+          title,
+          episodeNumber: targetNumber,
+          language: category,
+          requestId,
+        });
 
-    if (scraped.sources.length > 0) {
-      finalSources = scraped.sources;
-      winningProvider = scraped.provider;
-      console.log(`[Resolver][${requestId}] SCRAPER_HIT provider=${scraped.provider} direct=${scraped.sources.filter(s => !s.isEmbed).length} embed=${scraped.sources.filter(s => s.isEmbed).length}`);
-      break;
+        if (scraped?.sources?.length > 0) {
+          finalSources = scraped.sources;
+          winningProvider = scraped.provider;
+          console.log(`[Resolver][${requestId}] SCRAPER_HIT provider=${scraped.provider} direct=${scraped.sources.filter(s => !s.isEmbed).length} embed=${scraped.sources.filter(s => s.isEmbed).length}`);
+          break;
+        }
+    } catch (e) {
+        console.error(`[Resolver][${requestId}] SCRAPER_ERROR title="${title}": ${e.message}`);
     }
   }
 
