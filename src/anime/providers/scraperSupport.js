@@ -954,26 +954,35 @@ export function calculateTitleScore(query, candidate) {
  */
 export function unpackJs(code) {
   if (typeof code !== 'string') return '';
-  const match = /eval\(function\(p,a,c,k,e,d\)\{.*?return p\}\((['"])(.*?)\1,(\d+),(\d+),(['"])(.*?)\4\.split\((['"])\|\7\)\)\)/.exec(code);
-  if (!match) return code;
 
-  let p = match[2];
-  let a = parseInt(match[3], 10);
-  if (a <= 1) return code; // Guard against infinite recursion if base is 1 or less
-  let c = parseInt(match[4], 10);
-  let k = match[6];
-  const keywords = k.split('|');
+  let current = code;
+  let iterations = 0;
 
-  const e = (val) => {
-    return (val < a ? '' : e(Math.floor(val / a))) + ((val %= a) > 35 ? String.fromCharCode(val + 29) : val.toString(36));
-  };
+  while (iterations < 3) {
+      const match = /eval\(function\s*\(p,a,c,k,e,d\)\{[\s\S]*?return\s+p;?\s*\}\s*\(\s*(['"])(.*?)\1\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(['"])(.*?)\5\.split\(\s*(['"])\|\7\s*\)/.exec(current);
+      if (!match) break;
 
-  const d = {};
-  while (c--) {
-    d[e(c)] = keywords[c] || e(c);
+      let p = match[2];
+      let a = parseInt(match[3], 10);
+      let c = parseInt(match[4], 10);
+      if (a <= 1) break;
+
+      let k = match[6].split('|');
+
+      const e = (val) => {
+        return (val < a ? '' : e(Math.floor(val / a))) + ((val %= a) > 35 ? String.fromCharCode(val + 29) : val.toString(36));
+      };
+
+      const d = {};
+      while (c--) {
+        d[e(c)] = k[c] || e(c);
+      }
+
+      current = p.replace(/\b(\w+)\b/g, (w) => d[w] || w);
+      iterations++;
   }
 
-  return p.replace(/\b(\w+)\b/g, (w) => d[w] || w);
+  return current;
 }
 
 /**
