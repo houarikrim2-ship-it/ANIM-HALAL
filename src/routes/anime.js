@@ -141,7 +141,7 @@ router.get('/episode/sources', async (req, res, next) => {
 router.post('/sources/extract', async (req, res, next) => {
   try {
     const { anilistId, title, slug, episodeNumber, category } = req.body;
-    console.log(`[Resolver] POST /sources/extract anilistId=${anilistId}, title=${title}, slug=${slug}, ep=${episodeNumber}`);
+    console.log(`[Resolver] POST /sources/extract body=${JSON.stringify(req.body)}`);
     const result = await extractSources({ anilistId, title, slug, episodeNumber, category });
     console.log(`[Resolver] Success: found ${result?.sources?.length ?? 0} sources`);
     let finalResult = result;
