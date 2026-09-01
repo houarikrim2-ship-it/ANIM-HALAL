@@ -41,7 +41,9 @@ export async function catalog(kind, { perPage = 24 } = {}) {
 
 export async function info(anilistId) {
   return withProviderGuard(NAME, async () => {
-    const { json } = await fetchJson(ANIME_API_BASE_URL, `/api/info/${anilistId}`, { provider: NAME, timeoutMs: ANIME_PROVIDER_TIMEOUT_MS });
+    console.log(`[Miruro] GET /api/info/${anilistId}`);
+    const { json, status } = await fetchJson(ANIME_API_BASE_URL, `/api/info/${anilistId}`, { provider: NAME, timeoutMs: ANIME_PROVIDER_TIMEOUT_MS });
+    console.log(`[Miruro] HTTP ${status} for /api/info/${anilistId}`);
     return json?.results ?? null;
   });
 }
