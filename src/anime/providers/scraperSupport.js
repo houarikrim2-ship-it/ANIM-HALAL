@@ -150,12 +150,14 @@ export async function fetchHtml(url, options = {}) {
     if (accept !== null) {
       headers.Accept = accept;
     }
+    console.log(`[ScraperSupport] FETCH ${url}`);
     response = await fetch(url, {
       method: 'GET',
       headers,
       signal: controller.signal,
       redirect: 'follow',
     });
+    console.log(`[ScraperSupport] RESPONSE ${response.status} for ${url}`);
   } catch (cause) {
     clearTimeout(timer);
     if (cause?.name === 'AbortError') {
