@@ -41,8 +41,9 @@ function orderedProviders() {
     : ['witanime', 'anime4up'];
   return order
     .map((id) => {
-      const module = PROVIDER_MODULES[id];
+      const module = PROVIDER_MODULES[id.toLowerCase()];
       if (!module) {
+        console.warn(`[ScraperRegistry] provider module not found for id: ${id}`);
         return null;
       }
       return {

@@ -242,12 +242,16 @@ export async function catalog(kind, { page = 1 } = {}) {
         const re = /<div\s+class="[^"]*anime-card-poster[^"]*"[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"[^>]+alt="([^"]+)"[\s\S]*?<a\s+href="([^"]+)"/gi;
         let match;
         while ((match = re.exec(text)) !== null) {
-            out.push({
-                id: match[3].split('/').filter(Boolean).pop(),
-                title: { romaji: match[2], english: match[2], native: match[2] },
-                coverImage: { large: match[1], extraLarge: match[1] },
-                provider: NAME
-            });
+            const animeUrl = match[3] ?? '';
+            const animeId = animeUrl.split('/').filter(Boolean).pop();
+            if (animeId) {
+                out.push({
+                    id: animeId,
+                    title: { romaji: match[2], english: match[2], native: match[2] },
+                    coverImage: { large: match[1], extraLarge: match[1] },
+                    provider: NAME
+                });
+            }
         }
         return out;
     });
