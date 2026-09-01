@@ -567,7 +567,7 @@ export async function extractSources({ anilistId, title: providedTitle, slug, ep
     };
   }
 
-  console.error(`[Resolver][${requestId}] LIVE_EXTRACTION_FAILED reason=EMPTY_RESULTS`);
+  console.error(`[Resolver][${requestId}] LIVE_EXTRACTION_FAILED reason=EMPTY_RESULTS titles=[${titlesToTry.join(', ')}]`);
   log('scraper', 'extract', {
     animeId: normalizedId,
     status: 404,

@@ -36,6 +36,7 @@ const PROVIDER_BASE_URLS = {
 };
 
 function orderedProviders() {
+  console.log(`[ScraperRegistry] resolving orderedProviders priority=[${ANIME_SCRAPER_PRIORITY.join(', ')}] enabled=${ANIME_SCRAPER_ENABLED}`);
   const order = ANIME_SCRAPER_PRIORITY.length > 0
     ? ANIME_SCRAPER_PRIORITY
     : ['witanime', 'anime4up'];
