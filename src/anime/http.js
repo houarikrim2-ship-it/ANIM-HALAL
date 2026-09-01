@@ -116,6 +116,7 @@ export async function fetchJson(baseUrl, path, options = {}) {
       try {
         json = await response.json();
       } catch (err) {
+        console.error(`[HTTP] JSON parse failed for ${baseUrl}${path} (Status ${response.status}): ${err.message}`);
         throw new AnimeApiError(ERROR_CODES.UPSTREAM_BLOCKED, 'Provider returned a non-JSON response', {
           provider,
           cause: err,
