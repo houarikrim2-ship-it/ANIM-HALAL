@@ -3,6 +3,18 @@
  */
 import { DIRECT_MEDIA_URL_REGEX, MEDIA_MIME_TYPES, WATCH_EPISODE_ID_PATTERN } from './config.js';
 
+export function normalizeId(id) {
+  return String(id ?? '').trim().replace(/^anilist:/i, '');
+}
+
+export function isNumericId(id) {
+  return /^\d+$/.test(id);
+}
+
+export function isJikanId(id) {
+  return /^jikan_\d+$/.test(id);
+}
+
 export function normalizeUrl(raw, base = null) {
   if (raw === undefined || raw === null) return null;
   const trimmed = String(raw).trim();

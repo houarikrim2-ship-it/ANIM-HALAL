@@ -32,7 +32,7 @@ import { logProviderEvent } from './logger.js';
 import * as miruro from './providers/miruroProvider.js';
 import * as jikan from './providers/jikanProvider.js';
 import * as scraperRegistry from './providers/scraperRegistry.js';
-import { normalizeId, parseWatchEpisodeId, finalizeSources } from './normalize.js';
+import { normalizeId, isNumericId, isJikanId, parseWatchEpisodeId, finalizeSources } from './normalize.js';
 
 const ALLOWED_IDS = /^(?:\d+|jikan_\d+|anilist:\d+)$/i;
 
