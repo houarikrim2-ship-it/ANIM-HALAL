@@ -520,7 +520,7 @@ function episodeNumberFrom(url, label) {
 
 function pickBestResult(html, baseUrl, query) {
   const links = extractSearchLinks(html, baseUrl);
-  console.log(`[anime4up] EXTRACT_SEARCH_LINKS count=${links.length}`);
+  console.log(`[anime4up] EXTRACT_SEARCH_LINKS count=${links.length} query="${query}"`);
   if (links.length === 0) return null;
   let best = null, bestScore = -1000;
   for (const link of links) {
@@ -533,7 +533,9 @@ function pickBestResult(html, baseUrl, query) {
       bestScore = score;
     }
   }
-  return best ?? (links.length > 0 ? links[0].url : null);
+  const winner = (best === null || bestScore <= 0) ? null : best;
+  console.log(`[anime4up] PICK_BEST winner=${winner || 'NONE'} score=${bestScore}`);
+  return winner;
 }
 
 function extractSearchLinks(html, baseUrl) {

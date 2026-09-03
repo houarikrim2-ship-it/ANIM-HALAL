@@ -636,7 +636,11 @@ function scraperSearchTitles(anilistId, slug, providedTitle = null) {
       const base = baseTitleCleaner(romaji);
       if (base && base !== romaji) titles.add(base);
     }
-    if (english) titles.add(english);
+    if (english) {
+      titles.add(english);
+      const base = baseTitleCleaner(english);
+      if (base && base !== english) titles.add(base);
+    }
     if (providedTitle) titles.add(providedTitle);
 
     // Remaining variants
@@ -647,6 +651,10 @@ function scraperSearchTitles(anilistId, slug, providedTitle = null) {
   } else {
     // No cache, use provided title and slug
     if (providedTitle) titles.add(providedTitle);
+    if (providedTitle) {
+      const base = baseTitleCleaner(providedTitle);
+      if (base && base !== providedTitle) titles.add(base);
+    }
   }
 
   if (slug) {
@@ -656,10 +664,16 @@ function scraperSearchTitles(anilistId, slug, providedTitle = null) {
       .replace(/\b(?:ep|episode|watch)\b/gi, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    if (slugTitle) titles.add(slugTitle);
+    if (slugTitle) {
+      titles.add(slugTitle);
+      const base = baseTitleCleaner(slugTitle);
+      if (base && base !== slugTitle) titles.add(base);
+    }
   }
 
-  return [...titles].filter(Boolean);
+  const result = [...titles].filter(Boolean);
+  console.log(`[Resolver] scraperSearchTitles for ${anilistId}: [${result.join(', ')}]`);
+  return result;
 }
 
 /** Extracts the most searchable title from a provider info object. */

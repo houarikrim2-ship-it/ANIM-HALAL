@@ -449,7 +449,7 @@ export function collectWatchServers(html, pageUrl) {
 
 function pickBestResult(html, baseUrl, query) {
   const links = extractResultLinks(html, baseUrl);
-  console.log(`[witanime] EXTRACT_RESULT_LINKS count=${links.size} (Map entries)`);
+  console.log(`[witanime] EXTRACT_RESULT_LINKS count=${links.length} query="${query}"`);
   if (links.length === 0) return null;
   let best = null, bestScore = -Infinity;
   for (const link of links) {
@@ -464,7 +464,9 @@ function pickBestResult(html, baseUrl, query) {
       bestScore = score;
     }
   }
-  return (best === null || bestScore <= 0) ? null : best;
+  const winner = (best === null || bestScore <= 0) ? null : best;
+  console.log(`[witanime] PICK_BEST winner=${winner || 'NONE'} score=${bestScore}`);
+  return winner;
 }
 
 function extractResultLinks(html, baseUrl) {

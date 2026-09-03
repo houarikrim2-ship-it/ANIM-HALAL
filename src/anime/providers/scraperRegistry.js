@@ -134,6 +134,7 @@ export async function resolveEpisodeSources({ title, episodeNumber, language = '
               timeoutMs: ANIME_SCRAPER_TIMEOUT_MS,
           });
 
+          console.log(`[ScraperRegistry] provider=${provider.id} title="${title}" sourcesFound=${sources.length}`);
           return { provider: provider.id, sources };
       } catch (err) {
           return {
