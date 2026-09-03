@@ -196,44 +196,41 @@ export async function fetchHtml(url, options = {}) {
       console.log(`[ScraperSupport] FETCH ${url} (direct)`);
     }
 
-    response = await fetch(finalRequestUrl, fetchOptions);
+    try {
+      response = await fetch(finalRequestUrl, fetchOptions);
 
-    if (flaresolverrUrl && !scraperApiKey) {
-      // Unpack FlareSolverr response
-      const json = await response.json();
-      if (json.status === 'ok') {
-        const solution = json.solution;
-        return { text: solution.response, finalUrl: solution.url, status: solution.status };
+      if (flaresolverrUrl && !scraperApiKey) {
+        // Unpack FlareSolverr response
+        const json = await response.json();
+        if (json.status === 'ok') {
+          const solution = json.solution;
+          return { text: solution.response, finalUrl: solution.url, status: solution.status };
+        }
+        throw new Error(`FlareSolverr failed: ${json.message}`);
       }
-      throw new Error(`FlareSolverr failed: ${json.message}`);
-    }
 
-    console.log(`[ScraperSupport] RESPONSE ${response.status} for ${url}`);
-  } catch (cause) {
-    clearTimeout(timer);
-    if (cause?.name === 'AbortError') {
-      throw new AnimeApiError(ERROR_CODES.TIMEOUT, 'Scraper request timed out', {
+      console.log(`[ScraperSupport] RESPONSE ${response.status} for ${url}`);
+    } catch (cause) {
+      clearTimeout(timer);
+      console.error(`[ScraperSupport] FETCH_ERROR for ${url}: ${cause.message}`);
+      if (cause instanceof AnimeApiError) throw cause;
+      throw toApiError(cause, {
         provider,
         failureCategory: 'PROVIDER_TIMEOUT',
-        cause,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (response.status >= 500) {
+      console.warn(`[ScraperSupport] UPSTREAM_5XX ${response.status} for ${url}`);
+      try { await response.body?.cancel(); } catch { /* ignore */ }
+      throw new AnimeApiError(ERROR_CODES.PROVIDER_UNAVAILABLE, `Provider HTTP ${response.status}`, {
+        provider,
+        status: response.status,
+        failureCategory: 'PROVIDER_UNAVAILABLE',
       });
     }
-    throw toApiError(cause, {
-      provider,
-      failureCategory: 'PROVIDER_TIMEOUT',
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (response.status >= 500) {
-    try { await response.body?.cancel(); } catch { /* ignore */ }
-    throw new AnimeApiError(ERROR_CODES.PROVIDER_UNAVAILABLE, `Provider HTTP ${response.status}`, {
-      provider,
-      status: response.status,
-      failureCategory: 'PROVIDER_UNAVAILABLE',
-    });
-  }
   if (response.status >= 400) {
     try { await response.body?.cancel(); } catch { /* ignore */ }
     throw new AnimeApiError(ERROR_CODES.UPSTREAM_BLOCKED, `Provider HTTP ${response.status}`, {
