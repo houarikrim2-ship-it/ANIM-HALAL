@@ -543,6 +543,7 @@ export async function extractSources({ anilistId, title: providedTitle, slug, ep
   }
 
   const titlesToTry = scraperSearchTitles(normalizedId, slug, providedTitle);
+  console.log(`[Resolver][${requestId}] TITLES_TO_TRY=[${titlesToTry.join(', ')}]`);
 
   if (titlesToTry.length === 0) {
     throw new AnimeApiError(ERROR_CODES.INVALID_REQUEST, 'Could not resolve anime title for extraction');

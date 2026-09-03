@@ -173,17 +173,14 @@ export function toDirectStreamUrl(url) {
   return url;
 }
 
-export async function searchAnimePage(title, options = {}) {
-  return withScraperGuard(NAME, async () => {
-    const query = String(title ?? '').trim();
-    if (query === '') return null;
-    const base = options.baseUrl ?? ANIME_WITANIME_BASE_URL;
-    const searchUrl = `${base}/?s=${encodeURIComponent(query)}&search_param=animes`;
+    console.log(`[witanime] SEARCH_PAGE query="${query}" url="${searchUrl}"`);
     const { text, finalUrl } = await fetchHtml(searchUrl, {
       provider: NAME,
       timeoutMs: options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS,
     });
-    return pickBestResult(text, finalUrl, query);
+    const result = pickBestResult(text, finalUrl, query);
+    console.log(`[witanime] SEARCH_RESULT query="${query}" match="${result || 'NONE'}"`);
+    return result;
   });
 }
 
@@ -259,18 +256,27 @@ export async function catalog(kind, { page = 1 } = {}) {
 
 export async function episodePageUrl(animePageUrl, number, options = {}) {
   return withScraperGuard(NAME, async () => {
+    console.log(`[witanime] EPISODE_PAGE_URL_START animePage="${animePageUrl}" ep=${number}`);
     const { text, finalUrl } = await fetchHtml(animePageUrl, {
       provider: NAME,
       timeoutMs: options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS,
     });
     const episodes = decodeEpisodeGrid(text);
-    if (episodes.length === 0) return null;
+    console.log(`[witanime] EPISODE_GRID count=${episodes.length} animePage="${animePageUrl}"`);
+
+    if (episodes.length === 0) {
+      console.warn(`[witanime] EPISODE_GRID_EMPTY for ${animePageUrl}`);
+      return null;
+    }
     const target = Number(number);
     const exact = episodes.find((entry) => entry.number === target);
     const entry = exact ?? episodes
       .filter((candidate) => candidate.number <= target)
       .sort((a, b) => b.number - a.number)[0];
-    return entry ? normalizeUrl(entry.url, finalUrl) : null;
+
+    const result = entry ? normalizeUrl(entry.url, finalUrl) : null;
+    console.log(`[witanime] EPISODE_PAGE_MATCH target=${target} found=${entry?.number || 'NONE'} url="${result || 'NONE'}"`);
+    return result;
   });
 }
 
@@ -443,12 +449,14 @@ export function collectWatchServers(html, pageUrl) {
 
 function pickBestResult(html, baseUrl, query) {
   const links = extractResultLinks(html, baseUrl);
+  console.log(`[witanime] EXTRACT_RESULT_LINKS count=${links.size} (Map entries)`);
   if (links.length === 0) return null;
   let best = null, bestScore = -Infinity;
   for (const link of links) {
     const normTitle = normalizeTitle(link.label);
     if (normTitle === '') continue;
     let score = calculateTitleScore(query, link.label);
+    console.log(`[witanime] SCORE_CANDIDATE query="${query}" candidate="${link.label}" score=${score} url="${link.url}"`);
     if (score > 0 && link.url.includes('/anime/')) score += 20;
     if (!query.toLowerCase().includes('recap') && (link.label.toLowerCase().includes('recap') || link.label.includes('ملخص'))) score -= 30;
     if (score > bestScore) {
