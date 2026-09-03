@@ -22,7 +22,7 @@ import { normalizeUrl } from '../normalize.js';
 
 const BROWSER_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-  '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+  '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
 const MAX_HTML_BYTES = 4 * 1024 * 1024; // 4 MiB cap per page
 
@@ -45,9 +45,8 @@ export function browserHeaders({ referer = null, origin = null } = {}) {
   const headers = {
     'User-Agent': BROWSER_USER_AGENT,
     Accept:
-      'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,' +
-      'image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+      'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'ar,en-US;q=0.7,en;q=0.3',
     'Cache-Control': 'no-cache',
     Pragma: 'no-cache',
   };
@@ -150,8 +149,12 @@ export async function fetchHtml(url, options = {}) {
     if (accept !== null) {
       headers.Accept = accept;
     }
-    console.log(`[ScraperSupport] FETCH ${url}`);
-    response = await fetch(url, {
+
+    const proxyUrl = process.env.ANIME_PROXY_URL;
+    const finalRequestUrl = proxyUrl ? (proxyUrl.includes('{url}') ? proxyUrl.replace('{url}', encodeURIComponent(url)) : `${proxyUrl}${encodeURIComponent(url)}`) : url;
+
+    console.log(`[ScraperSupport] FETCH ${url}${proxyUrl ? ' (via proxy)' : ''}`);
+    response = await fetch(finalRequestUrl, {
       method: 'GET',
       headers,
       signal: controller.signal,

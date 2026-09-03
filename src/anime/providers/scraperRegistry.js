@@ -22,6 +22,7 @@ import {
   ANIME_SCRAPER_TIMEOUT_MS,
   ANIME_WITANIME_BASE_URL,
 } from '../config.js';
+import { AnimeApiError, ERROR_CODES } from '../errors.js';
 import * as anime4up from './anime4upScraper.js';
 import * as witanime from './witanimeScraper.js';
 

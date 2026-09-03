@@ -122,7 +122,25 @@ export async function info(animeId, options = {}) {
 /** Catalog rows (popular/trending) from Anime4Up. */
 export async function catalog(kind, { page = 1 } = {}) {
     return withScraperGuard(NAME, async () => {
-        const path = kind === 'popular' ? `/anime-list-3/page/${page}/` : `/?s=`;
+        let path;
+        if (kind === 'popular') {
+            // Attempt dynamic discovery of the anime list path
+            const { text: homeText } = await fetchHtml(ANIME_ANIME4UP_BASE_URL, {
+                provider: NAME,
+                timeoutMs: ANIME_SCRAPER_TIMEOUT_MS,
+            });
+
+            // Look for "Anime List" or "قائمة الأنمي" link
+            const listMatch = homeText.match(/href="([^"]*\/%d9%82%d8%a7%d8%a6%d9%85%d8%a9-%d8%a7%d9%84%d8%a7%d9%86%d9%85%d9%8a\/|[^"]*\/anime-list[^"]*\/)"/i);
+            const listPath = listMatch ? listMatch[1] : '/%d9%82%d8%a7%d8%a6%d9%85%d8%a9-%d8%a7%d9%84%d8%a7%d9%86%d9%85%d9%8a/';
+
+            // Ensure path is relative and clean
+            const cleanPath = listPath.startsWith('http') ? new URL(listPath).pathname : listPath;
+            path = `${cleanPath.replace(/\/$/, '')}/page/${page}/`;
+        } else {
+            path = `/?s=`;
+        }
+
         const url = `${ANIME_ANIME4UP_BASE_URL}${path}`;
         const { text, finalUrl } = await fetchHtml(url, {
             provider: NAME,
