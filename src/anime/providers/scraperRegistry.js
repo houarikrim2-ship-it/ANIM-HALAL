@@ -175,6 +175,50 @@ export async function resolveEpisodeSources({ title, episodeNumber, language = '
   };
 }
 
+/**
+ * Direct slug-based discovery for multiple providers.
+ * Bypasses search when the exact provider slug is already known.
+ */
+export async function resolveEpisodeSourcesBySlugs({ slugs, episodeNumber, category = 'sub', requestId = 'N/A' }) {
+  const collected = [];
+  let firstProvider = null;
+
+  const results = await Promise.allSettled(Object.entries(slugs).map(async ([providerId, slug]) => {
+      const provider = PROVIDER_MODULES[providerId.toLowerCase()];
+      if (!provider) return null;
+
+      try {
+          const animePageUrl = `${PROVIDER_BASE_URLS[providerId]}/anime/${slug}/`;
+          const pageUrl = await provider.episodePageUrl(animePageUrl, episodeNumber, {
+              timeoutMs: ANIME_SCRAPER_TIMEOUT_MS,
+          });
+          if (pageUrl === null) return null;
+
+          const sources = await provider.resolveEpisodeSources(pageUrl, {
+              timeoutMs: ANIME_SCRAPER_TIMEOUT_MS,
+          });
+
+          return { provider: providerId, sources };
+      } catch (err) {
+          console.warn(`[ScraperRegistry] direct slug resolution failed for ${providerId}: ${err.message}`);
+          return null;
+      }
+  }));
+
+  results.forEach(res => {
+      if (res.status === 'fulfilled' && res.value && res.value.sources.length > 0) {
+          if (firstProvider === null) firstProvider = res.value.provider;
+          for (const s of res.value.sources) {
+              if (!collected.some(existing => existing.url === s.url)) {
+                  collected.push(s);
+              }
+          }
+      }
+  });
+
+  return { sources: collected, provider: firstProvider };
+}
+
 /** Short, structured failure message for logging (never raw internals). */
 function sanitizeFailureMessage(err) {
   if (err instanceof Error && typeof err.message === 'string') {

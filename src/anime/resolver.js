@@ -32,21 +32,14 @@ import { logProviderEvent } from './logger.js';
 import * as miruro from './providers/miruroProvider.js';
 import * as jikan from './providers/jikanProvider.js';
 import * as scraperRegistry from './providers/scraperRegistry.js';
-import { parseWatchEpisodeId, finalizeSources } from './normalize.js';
+import { normalizeId, parseWatchEpisodeId, finalizeSources } from './normalize.js';
 
 const ALLOWED_IDS = /^(?:\d+|jikan_\d+|anilist:\d+)$/i;
 
-function normalizeId(id) {
-  return String(id ?? '').trim().replace(/^anilist:/i, '');
-}
-
-function isNumericId(id) {
-  return /^\d+$/.test(id);
-}
-
-function isJikanId(id) {
-  return /^jikan_\d+$/.test(id);
-}
+/** Direct ID to Provider URL mapping (anilistId -> { witanime?, anime4up? }) */
+const PROVIDER_ID_MAP = {
+  // Example: '20': { witanime: 'naruto', anime4up: 'naruto' }
+};
 
 function log(provider, requestType, fields = {}) {
   logProviderEvent({ provider, requestType, ...fields });
@@ -502,12 +495,31 @@ export async function extractSources({ anilistId, title: providedTitle, slug, ep
   const normalizedId = normalizeId(anilistId);
   const targetNumber = Number(episodeNumber);
 
+  // 1) Direct Mapping Check
+  const directMap = PROVIDER_ID_MAP[normalizedId];
+  if (directMap) {
+    console.log(`[Resolver][${requestId}] DIRECT_MAP_HIT anilistId=${normalizedId}`);
+    const results = await scraperRegistry.resolveEpisodeSourcesBySlugs({
+      slugs: directMap,
+      episodeNumber: targetNumber,
+      category,
+      requestId
+    });
+    if (results.sources.length > 0) {
+      return {
+        provider: 'scraper',
+        sources: finalizeSources(results.sources),
+        fallbackProvider: results.provider
+      };
+    }
+  }
+
   let alternateTitles = [];
   try {
     const info = await animeInfo(normalizedId);
     if (info && info.title) {
       if (typeof info.title === 'object') {
-        alternateTitles = [info.title.english, info.title.romaji, info.title.native].filter(Boolean);
+        alternateTitles = [info.title.romaji, ...info.synonyms, info.title.english, info.title.native].filter(Boolean);
       } else if (typeof info.title === 'string') {
         alternateTitles = [info.title];
       }
@@ -530,8 +542,10 @@ export async function extractSources({ anilistId, title: providedTitle, slug, ep
   let finalSources = [];
   let winningProvider = null;
 
-  for (const title of titlesToTry) {
-    console.log(`[Resolver][${requestId}] SCRAPER_TRY title="${title}"`);
+  for (const rawTitle of titlesToTry) {
+    const title = smartQueryCleaner(rawTitle);
+    if (!title) continue;
+    console.log(`[Resolver][${requestId}] SCRAPER_TRY title="${title}" (raw="${rawTitle}")`);
     try {
         const scraped = await scraperRegistry.resolveEpisodeSources({
           title,
@@ -625,18 +639,33 @@ function pickSearchTitle(info) {
     return null;
   }
   const candidates = [];
-  if (typeof info.title === 'string') {
+  if (info.title && typeof info.title === 'object') {
+    candidates.push(info.title.romaji, ...info.synonyms, info.title.english, info.title.native);
+  } else if (typeof info.title === 'string') {
     candidates.push(info.title);
-  } else if (info.title && typeof info.title === 'object') {
-    candidates.push(info.title.english, info.title.romaji, info.title.native);
   }
   candidates.push(info.name, info.englishTitle);
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.trim() !== '') {
-      return candidate.trim();
+  for (const raw of candidates) {
+    if (typeof raw === 'string' && raw.trim() !== '') {
+      const clean = smartQueryCleaner(raw);
+      if (clean) return clean;
     }
   }
   return null;
+}
+
+/**
+ * Smart query cleaner: strips noise, technical suffixes, and season info
+ * to extract the root anime name for better search matching.
+ */
+function smartQueryCleaner(title) {
+  if (!title) return null;
+  return title
+    .replace(/\b(TV|TV Size|UNCUT|RECAP|Dubbed|Subbed|Season \d+|S\d+|Part \d+|Movie|Film|Special|OVA|ONA|ONA Version)\b/gi, ' ')
+    .replace(/\b(The Maxim|the Animation|the Movie|Season)\b/gi, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 async function attemptWatch(providerName, episodeId) {
