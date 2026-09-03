@@ -954,6 +954,32 @@ export function normalizeTitle(title) {
     .trim();
 }
 
+/**
+ * Smart query cleaner: strips noise, technical suffixes, and season info
+ * to extract the root anime name for better search matching.
+ */
+export function smartQueryCleaner(title) {
+  if (!title) return null;
+  return title
+    .replace(/\b(TV|TV Size|UNCUT|RECAP|Dubbed|Subbed|Season \d+|S\d+|Part \d+|Movie|Film|Special|OVA|ONA|ONA Version)\b/gi, ' ')
+    .replace(/\b(The Maxim|the Animation|the Movie|Season)\b/gi, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Base title cleaner: strips everything after common delimiters like colons or dashes
+ * to isolate the core anime name.
+ */
+export function baseTitleCleaner(title) {
+  if (!title) return null;
+  // Regex to split at first colon, dash, or bracket that looks like a delimiter
+  const base = title.split(/[:\-(\[]/)[0].trim();
+  // Only return base if it's significant, otherwise keep full
+  return base.length >= 3 ? base : title;
+}
+
 /** Calculates a match score for a candidate title against a query. */
 export function calculateTitleScore(query, candidate) {
   const normQuery = normalizeTitle(query);

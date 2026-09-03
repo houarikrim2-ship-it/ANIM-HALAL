@@ -32,6 +32,10 @@ import { logProviderEvent } from './logger.js';
 import * as miruro from './providers/miruroProvider.js';
 import * as jikan from './providers/jikanProvider.js';
 import * as scraperRegistry from './providers/scraperRegistry.js';
+import {
+  smartQueryCleaner,
+  baseTitleCleaner
+} from './providers/scraperSupport.js';
 import { normalizeId, isNumericId, isJikanId, parseWatchEpisodeId, finalizeSources } from './normalize.js';
 
 const ALLOWED_IDS = /^(?:\d+|jikan_\d+|anilist:\d+)$/i;
@@ -429,41 +433,48 @@ export async function episodeSources(episodeId) {
   //    and resolve the same episode number. Only direct media URLs come back;
   //    the relay re-validates hosts and re-checks them at playback time.
   if (scraperFallbackUsable(targetNumber)) {
-    const title = scraperSearchTitle(anilistId, slug);
-    if (title !== null) {
-      console.log(`[Resolver] SCRAPER_DISCOVERY_START title="${title}" ep=${targetNumber}`);
-      const scraped = await scraperRegistry.resolveEpisodeSources({
-        title,
+    const titlesToTry = scraperSearchTitles(anilistId, slug);
+    console.log(`[Resolver] SCRAPER_DISCOVERY_START titles=[${titlesToTry.join(', ')}] ep=${targetNumber}`);
+
+    let scraped = { sources: [] };
+    for (const title of titlesToTry) {
+      const cleanTitle = smartQueryCleaner(title);
+      if (!cleanTitle) continue;
+
+      scraped = await scraperRegistry.resolveEpisodeSources({
+        title: cleanTitle,
         episodeNumber: Number(targetNumber),
         language: category,
       });
-      if (scraped.sources.length > 0) {
-        console.log(`[Resolver] DISCOVERY_SUCCESS source=SCRAPER provider=${scraped.provider} count=${scraped.sources.length}`);
-        log('scraper', 'sources', {
-          animeId: anilistId,
-          episodeId: raw,
-          status: 200,
-          failureCategory: 'SCRAPER_FALLBACK_USED',
-          fallbackProvider: scraped.provider,
-        });
-        return {
-          provider: 'scraper',
-          sources: finalizeSources(scraped.sources),
-          fallbackProvider: scraped.provider,
-        };
-      }
-      console.log(`[Resolver] SCRAPER_FAILED providers=[${scraped.failures?.map(f => f.provider).join(', ')}]`);
-      for (const failure of scraped.failures ?? []) {
-        log('scraper', 'sources', {
-          animeId: anilistId,
-          episodeId: raw,
-          status: null,
-          failureCategory: failure.category ?? 'EXTRACTION_FAILED',
-          providerAttempted: failure.provider,
-          step: failure.step,
-          message: failure.message,
-        });
-      }
+      if (scraped.sources.length > 0) break;
+    }
+
+    if (scraped.sources.length > 0) {
+      console.log(`[Resolver] DISCOVERY_SUCCESS source=SCRAPER provider=${scraped.provider} count=${scraped.sources.length}`);
+      log('scraper', 'sources', {
+        animeId: anilistId,
+        episodeId: raw,
+        status: 200,
+        failureCategory: 'SCRAPER_FALLBACK_USED',
+        fallbackProvider: scraped.provider,
+      });
+      return {
+        provider: 'scraper',
+        sources: finalizeSources(scraped.sources),
+        fallbackProvider: scraped.provider,
+      };
+    }
+    console.log(`[Resolver] SCRAPER_FAILED providers=[${scraped.failures?.map(f => f.provider).join(', ')}]`);
+    for (const failure of scraped.failures ?? []) {
+      log('scraper', 'sources', {
+        animeId: anilistId,
+        episodeId: raw,
+        status: null,
+        failureCategory: failure.category ?? 'EXTRACTION_FAILED',
+        providerAttempted: failure.provider,
+        step: failure.step,
+        message: failure.message,
+      });
     }
   }
 
@@ -531,8 +542,7 @@ export async function extractSources({ anilistId, title: providedTitle, slug, ep
     console.warn(`[Resolver][${requestId}] TITLE_ENRICHMENT_FAILED: ${err.message}`);
   }
 
-  const slugTitle = slug ? scraperSearchTitle(normalizedId, slug) : null;
-  const titlesToTry = [...new Set([providedTitle, slugTitle, ...alternateTitles].filter(Boolean))];
+  const titlesToTry = scraperSearchTitles(normalizedId, slug, providedTitle);
 
   if (titlesToTry.length === 0) {
     throw new AnimeApiError(ERROR_CODES.INVALID_REQUEST, 'Could not resolve anime title for extraction');
@@ -608,29 +618,47 @@ function scraperFallbackUsable(targetNumber) {
 }
 
 /**
- * Search title for the scrapers. Sources, in order of preference:
- * 1. Cached anime info (from an earlier successful request — no network).
- * 2. The watch slug itself ("{title-slug}-{number}" → "one piece").
- *
- * Deliberately never performs a live provider call here: scrapers exist
- * precisely for the case where the MiruroAPI is unreachable, and the title
- * must resolve without it. Never throws.
+ * Search titles for the scrapers in priority order.
+ * 1. Primary: title.romaji
+ * 2. Secondary: baseTitleCleaner(title.romaji)
+ * 3. Tertiary: title.english
+ * 4. Fallback: synonyms, native, watch slug, provided title
  */
-function scraperSearchTitle(anilistId, slug) {
+function scraperSearchTitles(anilistId, slug, providedTitle = null) {
+  const titles = new Set();
   const cached = metadataCache.get(`info:${anilistId}`);
-  if (cached !== undefined) {
-    const title = pickSearchTitle(cached);
-    if (title !== null) {
-      return title;
+
+  if (cached) {
+    const { romaji, english, native } = cached.title || {};
+    if (romaji) {
+      titles.add(romaji);
+      const base = baseTitleCleaner(romaji);
+      if (base && base !== romaji) titles.add(base);
     }
+    if (english) titles.add(english);
+    if (providedTitle) titles.add(providedTitle);
+
+    // Remaining variants
+    if (Array.isArray(cached.synonyms)) cached.synonyms.forEach(s => titles.add(s));
+    if (native) titles.add(native);
+    if (cached.name) titles.add(cached.name);
+    if (cached.englishTitle) titles.add(cached.englishTitle);
+  } else {
+    // No cache, use provided title and slug
+    if (providedTitle) titles.add(providedTitle);
   }
-  const slugTitle = String(slug ?? '')
-    .replace(/-\d+$/, '')
-    .replace(/[-_]+/g, ' ')
-    .replace(/\b(?:ep|episode|watch)\b/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return slugTitle === '' ? null : slugTitle;
+
+  if (slug) {
+    const slugTitle = String(slug)
+      .replace(/-\d+$/, '')
+      .replace(/[-_]+/g, ' ')
+      .replace(/\b(?:ep|episode|watch)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (slugTitle) titles.add(slugTitle);
+  }
+
+  return [...titles].filter(Boolean);
 }
 
 /** Extracts the most searchable title from a provider info object. */
@@ -640,7 +668,7 @@ function pickSearchTitle(info) {
   }
   const candidates = [];
   if (info.title && typeof info.title === 'object') {
-    candidates.push(info.title.romaji, ...info.synonyms, info.title.english, info.title.native);
+    candidates.push(info.title.romaji, info.title.english, info.title.native, ...info.synonyms);
   } else if (typeof info.title === 'string') {
     candidates.push(info.title);
   }
@@ -652,20 +680,6 @@ function pickSearchTitle(info) {
     }
   }
   return null;
-}
-
-/**
- * Smart query cleaner: strips noise, technical suffixes, and season info
- * to extract the root anime name for better search matching.
- */
-function smartQueryCleaner(title) {
-  if (!title) return null;
-  return title
-    .replace(/\b(TV|TV Size|UNCUT|RECAP|Dubbed|Subbed|Season \d+|S\d+|Part \d+|Movie|Film|Special|OVA|ONA|ONA Version)\b/gi, ' ')
-    .replace(/\b(The Maxim|the Animation|the Movie|Season)\b/gi, ' ')
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 async function attemptWatch(providerName, episodeId) {
