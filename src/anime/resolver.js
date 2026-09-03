@@ -542,7 +542,7 @@ export async function extractSources({ anilistId, title: providedTitle, slug, ep
     console.warn(`[Resolver][${requestId}] TITLE_ENRICHMENT_FAILED: ${err.message}`);
   }
 
-  const titlesToTry = scraperSearchTitles(normalizedId, slug, providedTitle);
+  const titlesToTry = await scraperSearchTitles(normalizedId, slug, providedTitle);
   console.log(`[Resolver][${requestId}] TITLES_TO_TRY=[${titlesToTry.join(', ')}]`);
 
   if (titlesToTry.length === 0) {
@@ -556,24 +556,33 @@ export async function extractSources({ anilistId, title: providedTitle, slug, ep
   for (const rawTitle of titlesToTry) {
     const title = smartQueryCleaner(rawTitle);
     if (!title) continue;
-    console.log(`[Resolver][${requestId}] SCRAPER_TRY title="${title}" (raw="${rawTitle}")`);
-    try {
-        const scraped = await scraperRegistry.resolveEpisodeSources({
-          title,
-          episodeNumber: targetNumber,
-          language: category,
-          requestId,
-        });
 
-        if (scraped?.sources?.length > 0) {
-          finalSources = scraped.sources;
-          winningProvider = scraped.provider;
-          console.log(`[Resolver][${requestId}] SCRAPER_HIT provider=${scraped.provider} direct=${scraped.sources.filter(s => !s.isEmbed).length} embed=${scraped.sources.filter(s => s.isEmbed).length}`);
-          break;
-        }
-    } catch (e) {
-        console.error(`[Resolver][${requestId}] SCRAPER_ERROR title="${title}": ${e.message}`);
+    // Fallback chain for this specific title: Full -> Base
+    const titleVariants = [title];
+    const base = baseTitleCleaner(title);
+    if (base && base !== title) titleVariants.push(base);
+
+    for (const variant of titleVariants) {
+      console.log(`[Resolver][${requestId}] SCRAPER_TRY variant="${variant}" (raw="${rawTitle}")`);
+      try {
+          const scraped = await scraperRegistry.resolveEpisodeSources({
+            title: variant,
+            episodeNumber: targetNumber,
+            language: category,
+            requestId,
+          });
+
+          if (scraped?.sources?.length > 0) {
+            finalSources = scraped.sources;
+            winningProvider = scraped.provider;
+            console.log(`[Resolver][${requestId}] SCRAPER_HIT provider=${scraped.provider} direct=${scraped.sources.filter(s => !s.isEmbed).length} embed=${scraped.sources.filter(s => s.isEmbed).length}`);
+            break;
+          }
+      } catch (e) {
+          console.error(`[Resolver][${requestId}] SCRAPER_ERROR variant="${variant}": ${e.message}`);
+      }
     }
+    if (finalSources.length > 0) break;
   }
 
   const latencyMs = Date.now() - startedAt;
@@ -625,36 +634,31 @@ function scraperFallbackUsable(targetNumber) {
  * 3. Tertiary: title.english
  * 4. Fallback: synonyms, native, watch slug, provided title
  */
-function scraperSearchTitles(anilistId, slug, providedTitle = null) {
+async function scraperSearchTitles(anilistId, slug, providedTitle = null) {
   const titles = new Set();
-  const cached = metadataCache.get(`info:${anilistId}`);
 
-  if (cached) {
-    const { romaji, english, native } = cached.title || {};
-    if (romaji) {
-      titles.add(romaji);
-      const base = baseTitleCleaner(romaji);
-      if (base && base !== romaji) titles.add(base);
-    }
-    if (english) {
-      titles.add(english);
-      const base = baseTitleCleaner(english);
-      if (base && base !== english) titles.add(base);
-    }
+  // Force a fresh info fetch if not in cache or if it's missing Romaji/English
+  let info = metadataCache.get(`info:${anilistId}`);
+  if (!info || !info.title) {
+    try {
+      info = await animeInfo(anilistId);
+    } catch (e) { /* ignore */ }
+  }
+
+  if (info && info.title) {
+    const { romaji, english, native } = info.title;
+    if (romaji) titles.add(romaji);
+    if (english) titles.add(english);
     if (providedTitle) titles.add(providedTitle);
 
     // Remaining variants
-    if (Array.isArray(cached.synonyms)) cached.synonyms.forEach(s => titles.add(s));
+    if (Array.isArray(info.synonyms)) info.synonyms.forEach(s => titles.add(s));
     if (native) titles.add(native);
-    if (cached.name) titles.add(cached.name);
-    if (cached.englishTitle) titles.add(cached.englishTitle);
+    if (info.name) titles.add(info.name);
+    if (info.englishTitle) titles.add(info.englishTitle);
   } else {
-    // No cache, use provided title and slug
+    // No metadata available, rely on provided title and slug
     if (providedTitle) titles.add(providedTitle);
-    if (providedTitle) {
-      const base = baseTitleCleaner(providedTitle);
-      if (base && base !== providedTitle) titles.add(base);
-    }
   }
 
   if (slug) {
@@ -664,11 +668,7 @@ function scraperSearchTitles(anilistId, slug, providedTitle = null) {
       .replace(/\b(?:ep|episode|watch)\b/gi, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    if (slugTitle) {
-      titles.add(slugTitle);
-      const base = baseTitleCleaner(slugTitle);
-      if (base && base !== slugTitle) titles.add(base);
-    }
+    if (slugTitle) titles.add(slugTitle);
   }
 
   const result = [...titles].filter(Boolean);
