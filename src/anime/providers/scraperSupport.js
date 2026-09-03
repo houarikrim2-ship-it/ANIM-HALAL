@@ -46,9 +46,14 @@ export function browserHeaders({ referer = null, origin = null } = {}) {
     'User-Agent': BROWSER_USER_AGENT,
     Accept:
       'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Language': 'ar,en-US;q=0.7,en;q=0.3',
+    'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
     'Cache-Control': 'no-cache',
     Pragma: 'no-cache',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
   };
   if (referer) {
     headers.Referer = referer;
@@ -151,15 +156,56 @@ export async function fetchHtml(url, options = {}) {
     }
 
     const proxyUrl = process.env.ANIME_PROXY_URL;
-    const finalRequestUrl = proxyUrl ? (proxyUrl.includes('{url}') ? proxyUrl.replace('{url}', encodeURIComponent(url)) : `${proxyUrl}${encodeURIComponent(url)}`) : url;
+    const scraperApiKey = process.env.SCRAPER_API_KEY;
+    const flaresolverrUrl = process.env.FLARESOLVERR_URL;
 
-    console.log(`[ScraperSupport] FETCH ${url}${proxyUrl ? ' (via proxy)' : ''}`);
-    response = await fetch(finalRequestUrl, {
+    let finalRequestUrl = url;
+    let fetchOptions = {
       method: 'GET',
       headers,
       signal: controller.signal,
       redirect: 'follow',
-    });
+    };
+
+    if (scraperApiKey) {
+      // ScraperAPI Option (Premium)
+      finalRequestUrl = `https://api.scraperapi.com/?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=true&premium=true`;
+      console.log(`[ScraperSupport] FETCH ${url} (via ScraperAPI)`);
+      // ScraperAPI takes care of headers, but we can pass them if needed
+    } else if (flaresolverrUrl) {
+      // FlareSolverr Option (Self-hosted)
+      finalRequestUrl = `${flaresolverrUrl.replace(/\/$/, '')}/v1`;
+      fetchOptions = {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cmd: 'request.get',
+          url,
+          maxTimeout: timeoutMs,
+        }),
+        signal: controller.signal,
+      };
+      console.log(`[ScraperSupport] FETCH ${url} (via FlareSolverr)`);
+    } else if (proxyUrl) {
+      // Direct Proxy Option
+      finalRequestUrl = proxyUrl.includes('{url}') ? proxyUrl.replace('{url}', encodeURIComponent(url)) : `${proxyUrl}${encodeURIComponent(url)}`;
+      console.log(`[ScraperSupport] FETCH ${url} (via direct proxy)`);
+    } else {
+      console.log(`[ScraperSupport] FETCH ${url} (direct)`);
+    }
+
+    response = await fetch(finalRequestUrl, fetchOptions);
+
+    if (flaresolverrUrl && !scraperApiKey) {
+      // Unpack FlareSolverr response
+      const json = await response.json();
+      if (json.status === 'ok') {
+        const solution = json.solution;
+        return { text: solution.response, finalUrl: solution.url, status: solution.status };
+      }
+      throw new Error(`FlareSolverr failed: ${json.message}`);
+    }
+
     console.log(`[ScraperSupport] RESPONSE ${response.status} for ${url}`);
   } catch (cause) {
     clearTimeout(timer);

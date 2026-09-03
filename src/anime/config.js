@@ -86,8 +86,8 @@ export const ANIME_PROVIDER_PRIORITY = (() => {
 // Android client never contacts these hosts; every extracted URL is proxied
 // through the HLS relay, which enforces the upstream allowlist.
 
-const DEFAULT_WITANIME_BASE_URL = 'https://witanime.cyou';
-const DEFAULT_ANIME4UP_BASE_URL = 'https://w1.anime4up.rest';
+const DEFAULT_WITANIME_BASE_URL = 'https://witanime.com';
+const DEFAULT_ANIME4UP_BASE_URL = 'https://anime4up.rest';
 
 export const ANIME_SCRAPER_ENABLED = true;
 
