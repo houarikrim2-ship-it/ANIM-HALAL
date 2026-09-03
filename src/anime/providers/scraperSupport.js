@@ -130,7 +130,8 @@ export function isSafePublicUrl(url) {
  * failures; anti-bot responses are never retried.
  */
 export async function fetchHtml(url, options = {}) {
-  const timeoutMs = options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS;
+  const scraperApiKey = process.env.SCRAPER_API_KEY;
+  const timeoutMs = scraperApiKey ? 25000 : (options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS);
   const provider = options.provider ?? 'scraper';
   const referer = options.referer ?? null;
   const origin = options.origin ?? null;
@@ -169,8 +170,9 @@ export async function fetchHtml(url, options = {}) {
 
     if (scraperApiKey) {
       // ScraperAPI Option (Premium)
-      finalRequestUrl = `https://api.scraperapi.com/?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=true&premium=true`;
-      console.log(`[ScraperSupport] FETCH ${url} (via ScraperAPI)`);
+      const useRender = options.render === true;
+      finalRequestUrl = `https://api.scraperapi.com/?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=${useRender}&premium=true`;
+      console.log(`[ScraperSupport] FETCH ${url} (via ScraperAPI, render=${useRender})`);
       // ScraperAPI takes care of headers, but we can pass them if needed
     } else if (flaresolverrUrl) {
       // FlareSolverr Option (Self-hosted)
