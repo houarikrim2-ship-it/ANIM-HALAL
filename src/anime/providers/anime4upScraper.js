@@ -70,19 +70,24 @@ const BARE_FILE_REGEX = /file\s*:\s*"(https?:\/\/[^"]+\.(?:m3u8|mp4|webm|m4v)[^"
 /** Searches the site and returns the most relevant anime page URL, or null. */
 export async function searchAnimePage(title, options = {}) {
   return withScraperGuard(NAME, async () => {
-    const query = String(title ?? '').trim();
-    if (query === '') return null;
-    const base = options.baseUrl ?? ANIME_ANIME4UP_BASE_URL;
-    const searchUrl = `${base}/?search_param=animes&s=${encodeURIComponent(query)}`;
+    try {
+      const query = String(title ?? '').trim();
+      if (query === '') return null;
+      const base = options.baseUrl ?? ANIME_ANIME4UP_BASE_URL;
+      const searchUrl = `${base}/?search_param=animes&s=${encodeURIComponent(query)}`;
 
-    console.log(`[anime4up] SEARCH_PAGE query="${query}" url="${searchUrl}"`);
-    const { text, finalUrl } = await fetchHtml(searchUrl, {
-      provider: NAME,
-      timeoutMs: options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS,
-    });
-    const result = pickBestResult(text, finalUrl, query);
-    console.log(`[anime4up] SEARCH_RESULT query="${query}" match="${result || 'NONE'}"`);
-    return result;
+      console.log(`[anime4up] SEARCH_PAGE query="${query}" url="${searchUrl}"`);
+      const { text, finalUrl } = await fetchHtml(searchUrl, {
+        provider: NAME,
+        timeoutMs: options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS,
+      });
+      const result = pickBestResult(text, finalUrl, query);
+      console.log(`[anime4up] SEARCH_RESULT query="${query}" match="${result || 'NONE'}"`);
+      return result;
+    } catch (e) {
+      console.error(`[anime4up] SEARCH_ERROR query="${title}": ${e.message}`);
+      throw e;
+    }
   });
 }
 
@@ -177,27 +182,32 @@ export async function catalog(kind, { page = 1 } = {}) {
  */
 export async function episodePageUrl(animePageUrl, number, options = {}) {
   return withScraperGuard(NAME, async () => {
-    console.log(`[anime4up] EPISODE_PAGE_URL_START animePage="${animePageUrl}" ep=${number}`);
-    const { text, finalUrl } = await fetchHtml(animePageUrl, {
-      provider: NAME,
-      timeoutMs: options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS,
-    });
-    const episodes = extractEpisodes(text, finalUrl);
-    console.log(`[anime4up] EPISODE_LIST count=${episodes.length} animePage="${animePageUrl}"`);
+    try {
+      console.log(`[anime4up] EPISODE_PAGE_URL_START animePage="${animePageUrl}" ep=${number}`);
+      const { text, finalUrl } = await fetchHtml(animePageUrl, {
+        provider: NAME,
+        timeoutMs: options.timeoutMs ?? ANIME_SCRAPER_TIMEOUT_MS,
+      });
+      const episodes = extractEpisodes(text, finalUrl);
+      console.log(`[anime4up] EPISODE_LIST count=${episodes.length} animePage="${animePageUrl}"`);
 
-    if (episodes.length === 0) {
-      console.warn(`[anime4up] EPISODE_LIST_EMPTY for ${animePageUrl}`);
-      return null;
+      if (episodes.length === 0) {
+        console.warn(`[anime4up] EPISODE_LIST_EMPTY for ${animePageUrl}`);
+        return null;
+      }
+      const target = Number(number);
+      const exact = episodes.find((entry) => entry.number === target);
+      const entry = exact ?? episodes
+        .filter((candidate) => candidate.number <= target)
+        .sort((a, b) => b.number - a.number)[0];
+
+      const result = entry?.url ?? null;
+      console.log(`[anime4up] EPISODE_PAGE_MATCH target=${target} found=${entry?.number || 'NONE'} url="${result || 'NONE'}"`);
+      return result;
+    } catch (e) {
+      console.error(`[anime4up] EPISODE_URL_ERROR for ${animePageUrl}: ${e.message}`);
+      throw e;
     }
-    const target = Number(number);
-    const exact = episodes.find((entry) => entry.number === target);
-    const entry = exact ?? episodes
-      .filter((candidate) => candidate.number <= target)
-      .sort((a, b) => b.number - a.number)[0];
-
-    const result = entry?.url ?? null;
-    console.log(`[anime4up] EPISODE_PAGE_MATCH target=${target} found=${entry?.number || 'NONE'} url="${result || 'NONE'}"`);
-    return result;
   });
 }
 
