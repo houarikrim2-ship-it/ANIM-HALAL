@@ -278,16 +278,7 @@ export async function fetchHtml(url, options = {}) {
       failureCategory: 'UPSTREAM_BLOCKED',
     });
   }
-    try {
-      return { text, finalUrl: response.url, status: response.status };
-    } catch (err) {
-      if (err instanceof AnimeApiError) throw err;
-      throw toApiError(err, { provider });
-    }
-  } catch (err) {
-    if (err instanceof AnimeApiError) throw err;
-    throw toApiError(err, { provider });
-  }
+  return { text, finalUrl: response.url, status: response.status };
 }
 
 /**

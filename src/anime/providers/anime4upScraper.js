@@ -68,6 +68,13 @@ const LABEL_FILE_REGEX = /label\s*:\s*"([^"]*)"\s*,\s*file\s*:\s*"([^"]+)"/gi;
 const BARE_FILE_REGEX = /file\s*:\s*"(https?:\/\/[^"]+\.(?:m3u8|mp4|webm|m4v)[^"]*)"\s*(?:,\s*(?:label|type)\s*:\s*"[^"]*")?/gi;
 
 /** Searches the site and returns the most relevant anime page URL, or null. */
+export async function searchAnimePage(title, options = {}) {
+  return withScraperGuard(NAME, async () => {
+    const query = String(title ?? '').trim();
+    if (query === '') return null;
+    const base = options.baseUrl ?? ANIME_ANIME4UP_BASE_URL;
+    const searchUrl = `${base}/?search_param=animes&s=${encodeURIComponent(query)}`;
+
     console.log(`[anime4up] SEARCH_PAGE query="${query}" url="${searchUrl}"`);
     const { text, finalUrl } = await fetchHtml(searchUrl, {
       provider: NAME,
